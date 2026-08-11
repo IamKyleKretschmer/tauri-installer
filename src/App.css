@@ -1,0 +1,229 @@
+:root {
+  --tx-navy: #0a0e27;
+  --tx-orange: #ff6a3d;
+  --tx-blue: #2f5fdb;
+  --tx-blue-hover: #244cb4;
+  --tx-blue-disabled: #9db1ec;
+  --tx-green: #1b7a3d;
+  --tx-border: #e2e4ec;
+  --tx-muted: #6b7288;
+  --tx-bg: #f4f5f9;
+}
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  background: var(--tx-bg);
+  color: var(--tx-navy);
+}
+
+.step-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+.step-title--sm {
+  font-size: 1.15rem;
+}
+
+.step-intro {
+  color: var(--tx-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.info-card,
+.panel-card {
+  border: 1px solid var(--tx-border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  background: #fff;
+  margin-bottom: 1.5rem;
+}
+
+.info-card h3,
+.panel-card__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+}
+
+.info-card p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.checklist li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--tx-border);
+  font-size: 0.9rem;
+}
+.checklist li:last-child {
+  border-bottom: none;
+}
+
+.callout {
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  margin-bottom: 1.5rem;
+}
+.callout--warn {
+  background: #ffe4d6;
+  color: #7a3418;
+}
+.callout--info {
+  background: #dfe6fa;
+  color: #24356f;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.check-row__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.92rem;
+  margin-bottom: 0.4rem;
+}
+.check-row__status--pass {
+  color: var(--tx-green);
+  font-weight: 600;
+}
+.check-row__status--fail {
+  color: #c0392b;
+  font-weight: 600;
+}
+.check-row__status--checking {
+  color: var(--tx-blue);
+}
+.check-row__status--pending {
+  color: var(--tx-muted);
+}
+.check-row__track {
+  height: 6px;
+  border-radius: 999px;
+  background: #e6e8f0;
+  overflow: hidden;
+}
+.check-row__fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.check-row__fill--pass {
+  background: var(--tx-green);
+}
+.check-row__fill--fail {
+  background: #c0392b;
+}
+.check-row__fill--checking {
+  background: var(--tx-blue);
+}
+.check-row__fill--pending {
+  background: transparent;
+}
+
+.prereq-list {
+  display: flex;
+  flex-direction: column;
+}
+.prereq-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--tx-border);
+}
+.prereq-row__name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.prereq-row__desc {
+  color: var(--tx-muted);
+  font-size: 0.85rem;
+}
+
+.prereq-progress-row {
+  margin-bottom: 1.25rem;
+}
+.prereq-progress-row__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+.prereq-progress-row__status {
+  color: var(--tx-blue);
+  font-size: 0.82rem;
+}
+
+.install-console {
+  background: #eef0f5;
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+  color: #2c3350;
+  min-height: 140px;
+  white-space: pre-wrap;
+  margin-bottom: 1.5rem;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+.toggle-pill {
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--tx-border);
+  background: #fff;
+  color: var(--tx-blue);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toggle-pill--active {
+  background: var(--tx-blue);
+  color: #fff;
+  border-color: var(--tx-blue);
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.review-table td {
+  padding: 0.55rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--tx-border);
+}
+.review-table td:first-child {
+  color: var(--tx-muted);
+  width: 40%;
+}

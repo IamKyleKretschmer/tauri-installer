@@ -1,0 +1,31 @@
+.wizard-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+}
+
+.wizard-shell__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem 2.25rem;
+}
+
+.wizard-shell__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.5rem;
+  border-top: 1px solid var(--tx-border);
+}
+
+.wizard-shell__step {
+  font-size: 0.82rem;
+  color: var(--tx-muted);
+}
+
+.wizard-shell__actions {
+  display: flex;
+  gap: 0.6rem;
+}

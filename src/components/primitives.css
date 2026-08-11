@@ -1,0 +1,111 @@
+.tx-button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.tx-button--primary {
+  background: var(--tx-blue);
+  color: #fff;
+}
+.tx-button--primary:hover {
+  background: var(--tx-blue-hover);
+}
+.tx-button--primary:disabled {
+  background: var(--tx-blue-disabled);
+  cursor: not-allowed;
+}
+
+.tx-button--secondary {
+  background: #fff;
+  color: var(--tx-navy);
+  border-color: var(--tx-border);
+}
+.tx-button--secondary:hover {
+  background: #f5f6fa;
+}
+
+.tx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.tx-field__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--tx-navy);
+}
+
+.tx-input {
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--tx-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--tx-navy);
+}
+.tx-input:focus {
+  outline: none;
+  border-color: var(--tx-blue);
+  box-shadow: 0 0 0 3px rgba(47, 95, 219, 0.15);
+}
+
+.tx-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23667'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+.tx-field__hint {
+  font-size: 0.78rem;
+  color: var(--tx-muted);
+}
+
+.tx-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tx-badge--pass {
+  background: #e3f6e8;
+  color: #1b7a3d;
+}
+.tx-badge--warn {
+  background: #eef0f5;
+  color: #555f75;
+}
+.tx-badge--neutral {
+  background: #eef0f5;
+  color: #555f75;
+}
+
+.tx-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: #e6e8f0;
+  overflow: hidden;
+}
+.tx-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.tx-progress__fill--active {
+  background: var(--tx-blue);
+}
+.tx-progress__fill--done {
+  background: var(--tx-green);
+}
