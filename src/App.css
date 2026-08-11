@@ -227,3 +227,41 @@
   color: var(--tx-muted);
   width: 40%;
 }
+
+.review-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.review-card {
+  margin-bottom: 0;
+}
+.review-card__list {
+  margin: 0;
+}
+.review-card__row {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  padding: 0.3rem 0;
+}
+.review-card__row dt {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.review-card__row dd {
+  margin: 0;
+  color: var(--tx-navy);
+}
+
+.prereq-progress-row__status--waiting {
+  color: var(--tx-muted);
+}
+.prereq-progress-row__status--complete {
+  color: var(--tx-green);
+}
+.prereq-progress-row__sublabel {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--tx-muted);
+}

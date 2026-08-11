@@ -1,13 +1,26 @@
 import { useEffect, useState } from "react";
-import { Button, TextInput } from "../components/primitives";
+import { Banner, Button, Select, TextInput } from "../components/primitives";
 import { greetFromRust, runDotNetTask } from "../services/installer.service";
 import { tauriBridge } from "../services/tauri.bridge";
 
-export function IisNetStep() {
-  const [appPool, setAppPool] = useState("K2AppPool");
-  const [dotnetInput, setDotnetInput] = useState("");
-  const [output, setOutput] = useState("");
+export interface IisNetConfig {
+  siteName: string;
+  httpPort: string;
+  httpsPort: string;
+  appPoolIdentity: string;
+  sslCertificate: string;
+}
+
+export function IisNetStep({
+  config,
+  onChange,
+}: {
+  config: IisNetConfig;
+  onChange: (config: IisNetConfig) => void;
+}) {
+  const [local, setLocal] = useState(config);
   const [dotnetPresent, setDotnetPresent] = useState<boolean | null>(null);
+  const [diagnosticsOutput, setDiagnosticsOutput] = useState("");
 
   useEffect(() => {
     tauriBridge
@@ -16,49 +29,64 @@ export function IisNetStep() {
       .catch(() => setDotnetPresent(false));
   }, []);
 
-  async function handleGreet() {
-    const result = await greetFromRust(appPool || "K2").catch((e) => String(e));
-    setOutput(result);
+  function update(patch: Partial<IisNetConfig>) {
+    const next = { ...local, ...patch };
+    setLocal(next);
+    onChange(next);
   }
 
-  async function handleRunDotNet() {
-    const result = await runDotNetTask(dotnetInput || "ping").catch((e) => `Error: ${e}`);
-    setOutput(result);
+  async function handleRunDiagnostics() {
+    const greeting = await greetFromRust(local.siteName || "K2").catch((e) => String(e));
+    const runnerOutput = await runDotNetTask(local.siteName || "K2").catch((e) => `Error: ${e}`);
+    setDiagnosticsOutput(`${greeting}\n${runnerOutput}`);
   }
 
   return (
     <div>
       <h1 className="step-title step-title--sm">IIS &amp; .NET configuration</h1>
-      <p className="step-intro">Configure the application pool that will host K2, and verify the IPC bridge to .NET.</p>
+      <p className="step-intro">Configure the web server and application pool for K2.</p>
 
-      <TextInput label="Application pool name" value={appPool} onChange={(e) => setAppPool(e.target.value)} />
+      <Banner tone="success">
+        IIS 10.0 detected and enabled. {dotnetPresent === false ? ".NET 4.8 was not detected." : ".NET 4.8 is present."}
+      </Banner>
 
-      <div className="panel-card">
-        <h3 className="panel-card__title">.NET Framework status</h3>
-        <p className="step-intro" style={{ marginBottom: 0 }}>
-          {dotnetPresent === null ? "Checking…" : dotnetPresent ? ".NET Framework 4.8 detected." : ".NET Framework 4.8 not detected."}
-        </p>
+      <TextInput label="IIS site name" value={local.siteName} onChange={(e) => update({ siteName: e.target.value })} />
+
+      <div className="field-row">
+        <TextInput label="HTTP port" value={local.httpPort} onChange={(e) => update({ httpPort: e.target.value })} />
+        <TextInput label="HTTPS port" value={local.httpsPort} onChange={(e) => update({ httpsPort: e.target.value })} />
       </div>
 
+      <Select
+        label="Application pool identity"
+        value={local.appPoolIdentity}
+        onChange={(e) => update({ appPoolIdentity: e.target.value })}
+      >
+        <option>NetworkService</option>
+        <option>ApplicationPoolIdentity</option>
+        <option>Custom account</option>
+      </Select>
+
+      <Select
+        label="SSL certificate"
+        hint="Trusted CA certificates are strongly recommended. Self-signed certs may cause errors with SharePoint Online."
+        value={local.sslCertificate}
+        onChange={(e) => update({ sslCertificate: e.target.value })}
+      >
+        <option value="">Select from store</option>
+        <option value="*.contoso.com">*.contoso.com</option>
+        <option value="self-signed">Self-signed certificate</option>
+      </Select>
+
       <div className="panel-card">
-        <h3 className="panel-card__title">IPC bridge test</h3>
-        <div className="field-row">
-          <TextInput
-            label="Message to Rust"
-            placeholder="Enter a name"
-            value={dotnetInput}
-            onChange={(e) => setDotnetInput(e.target.value)}
-          />
-        </div>
-        <div className="wizard-shell__actions" style={{ marginBottom: "1rem" }}>
-          <Button variant="secondary" onClick={handleGreet}>
-            Call Rust command
-          </Button>
-          <Button variant="primary" onClick={handleRunDotNet}>
-            Run DotNetRunner.exe
-          </Button>
-        </div>
-        {output && <pre className="install-console">{output}</pre>}
+        <h3 className="panel-card__title">Diagnostics</h3>
+        <p className="step-intro" style={{ marginBottom: "0.75rem" }}>
+          Verify the IPC bridge to Rust and the .NET runner before continuing.
+        </p>
+        <Button variant="secondary" onClick={handleRunDiagnostics}>
+          Run diagnostics
+        </Button>
+        {diagnosticsOutput && <pre className="install-console" style={{ marginTop: "1rem" }}>{diagnosticsOutput}</pre>}
       </div>
     </div>
   );

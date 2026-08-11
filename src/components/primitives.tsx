@@ -55,8 +55,43 @@ export function Select({ label, hint, id, className = "", children, ...rest }: S
   );
 }
 
-export function Badge({ tone, children }: { tone: "pass" | "warn" | "neutral"; children: React.ReactNode }) {
+export function Badge({
+  tone,
+  children,
+}: {
+  tone: "pass" | "caution" | "warn" | "neutral";
+  children: React.ReactNode;
+}) {
   return <span className={`tx-badge tx-badge--${tone}`}>{children}</span>;
+}
+
+export function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="tx-toggle">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        className={`tx-toggle__track ${checked ? "tx-toggle__track--on" : ""}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="tx-toggle__thumb" />
+      </button>
+      <span>{label}</span>
+    </label>
+  );
+}
+
+export function Banner({ tone = "success", children }: { tone?: "success" | "info" | "warn"; children: React.ReactNode }) {
+  return <div className={`tx-banner tx-banner--${tone}`}>{children}</div>;
 }
 
 export function ProgressBar({ percent, tone = "active" }: { percent: number; tone?: "active" | "done" }) {

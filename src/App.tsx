@@ -7,8 +7,11 @@ import { PrerequisitesInstallStep, PrerequisitesStep } from "./steps/Prerequisit
 import { SqlServerStep } from "./steps/SqlServerStep";
 import type { SqlServerConfig } from "./steps/SqlServerStep";
 import { IisNetStep } from "./steps/IisNetStep";
+import type { IisNetConfig } from "./steps/IisNetStep";
 import { ActiveDirectoryStep } from "./steps/ActiveDirectoryStep";
+import type { ActiveDirectoryConfig } from "./steps/ActiveDirectoryStep";
 import { NetworkTlsStep } from "./steps/NetworkTlsStep";
+import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
 import type { SystemCheckItem } from "./services/installer.service";
@@ -43,9 +46,28 @@ const DEFAULT_SQL_CONFIG: SqlServerConfig = {
   instanceSource: "existing",
   instance: "",
   authMode: "sql",
-  username: "",
+  username: "sa",
   password: "",
   databaseName: "K2",
+};
+
+const DEFAULT_IIS_CONFIG: IisNetConfig = {
+  siteName: "K2",
+  httpPort: "80",
+  httpsPort: "443",
+  appPoolIdentity: "NetworkService",
+  sslCertificate: "",
+};
+
+const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
+  serviceAccount: "CONTOSO\\svc-k2",
+  servicePassword: "",
+  adminsGroup: "CONTOSO\\K2Admins",
+  createGroupIfMissing: true,
+};
+
+const DEFAULT_NETWORK_CONFIG: NetworkTlsConfig = {
+  hostname: "k2server.contoso.local",
 };
 
 function App() {
@@ -54,6 +76,9 @@ function App() {
   const [systemChecksDone, setSystemChecksDone] = useState(false);
   const [dotnetPresent, setDotnetPresent] = useState(false);
   const [sqlConfig, setSqlConfig] = useState<SqlServerConfig>(DEFAULT_SQL_CONFIG);
+  const [iisConfig, setIisConfig] = useState<IisNetConfig>(DEFAULT_IIS_CONFIG);
+  const [adConfig, setAdConfig] = useState<ActiveDirectoryConfig>(DEFAULT_AD_CONFIG);
+  const [networkConfig, setNetworkConfig] = useState<NetworkTlsConfig>(DEFAULT_NETWORK_CONFIG);
 
   const index = ORDER.indexOf(step);
 
@@ -108,17 +133,20 @@ function App() {
       nextLabel = "Test connection & Next";
       break;
     case "iis-net":
-      body = <IisNetStep />;
+      body = <IisNetStep config={iisConfig} onChange={setIisConfig} />;
       break;
     case "active-directory":
-      body = <ActiveDirectoryStep />;
+      body = <ActiveDirectoryStep config={adConfig} onChange={setAdConfig} />;
+      nextLabel = "Validate & Next";
       break;
     case "network-tls":
-      body = <NetworkTlsStep />;
+      body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} />;
       break;
     case "review":
-      body = <ReviewStep sqlConfig={sqlConfig} />;
-      nextLabel = "Install";
+      body = (
+        <ReviewStep sqlConfig={sqlConfig} iisConfig={iisConfig} adConfig={adConfig} networkConfig={networkConfig} />
+      );
+      nextLabel = "Install K2";
       break;
     case "install":
       body = <InstallStep onDone={() => setCompleted((prev) => new Set(prev).add("install"))} />;
