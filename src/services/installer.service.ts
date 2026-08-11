@@ -1,4 +1,15 @@
 import { tauriBridge } from "./tauri.bridge";
+import type { ProductInfo } from "./tauri.bridge";
+
+export type { ProductInfo };
+
+export async function getProductInfo(): Promise<ProductInfo> {
+  return tauriBridge.getProductInfo();
+}
+
+export async function getInstalledK2Version(): Promise<string | null> {
+  return tauriBridge.getInstalledK2Version().catch(() => null);
+}
 
 export type CheckStatus = "pending" | "checking" | "pass" | "fail";
 

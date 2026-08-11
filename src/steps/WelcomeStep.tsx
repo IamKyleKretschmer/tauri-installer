@@ -1,3 +1,7 @@
+import { useEffect, useState } from "react";
+import type { ProductInfo } from "../services/installer.service";
+import { getProductInfo } from "../services/installer.service";
+
 const WILL_DO = [
   "Check your hardware and OS compatibility",
   "Detect and install missing prerequisites (.NET, IIS, SQL Server Express)",
@@ -8,6 +12,14 @@ const WILL_DO = [
 ];
 
 export function WelcomeStep() {
+  const [product, setProduct] = useState<ProductInfo | null>(null);
+
+  useEffect(() => {
+    getProductInfo()
+      .then(setProduct)
+      .catch(() => setProduct(null));
+  }, []);
+
   return (
     <div>
       <h1 className="step-title">Welcome to K2 Setup</h1>
@@ -19,11 +31,11 @@ export function WelcomeStep() {
       <div className="info-grid">
         <div className="info-card">
           <h3>Installing version</h3>
-          <p>K2 Five 5.10</p>
+          <p>{product ? product.fullVersion : "Checking..."}</p>
         </div>
         <div className="info-card">
           <h3>Install type</h3>
-          <p>Full server install</p>
+          <p>{product ? product.installType : "Checking..."}</p>
         </div>
       </div>
 

@@ -6,8 +6,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::hello,
+            commands::get_product_info,
             commands::detect_dotnet,
             commands::detect_k2_installed,
+            commands::get_installed_k2_version,
             commands::run_dotnet,
         ])
         .run(tauri::generate_context!())

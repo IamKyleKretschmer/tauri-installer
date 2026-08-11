@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Button } from "../components/primitives";
+import { getInstalledK2Version } from "../services/installer.service";
 import "./MaintenanceStep.css";
 
 export type MaintenanceAction = "configure" | "modify" | "remove" | "update";
@@ -19,12 +21,19 @@ export function MaintenanceStep({
   onSelect: (action: MaintenanceAction) => void;
   onContinue: () => void;
 }) {
+  const [installedVersion, setInstalledVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    getInstalledK2Version().then(setInstalledVersion);
+  }, []);
+
   return (
     <div className="maintenance-gate">
       <div className="maintenance-card">
         <h2 className="maintenance-card__title">Maintenance</h2>
         <p className="maintenance-card__intro">
-          K2 is already installed on this machine. Choose what you would like to do.
+          K2 {installedVersion ? `(version ${installedVersion}) ` : ""}is already installed on this machine.
+          Choose what you would like to do.
         </p>
 
         <div className="maintenance-options">
