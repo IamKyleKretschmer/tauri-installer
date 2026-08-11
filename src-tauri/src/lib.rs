@@ -7,6 +7,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::hello,
             commands::detect_dotnet,
+            commands::detect_k2_installed,
             commands::run_dotnet,
         ])
         .run(tauri::generate_context!())

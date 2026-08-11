@@ -1,0 +1,73 @@
+.maintenance-gate {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tx-bg);
+}
+
+.maintenance-card {
+  width: 340px;
+  background: #fff;
+  border: 1px solid var(--tx-border);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.maintenance-card__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--tx-blue);
+  margin: 0 0 1rem;
+}
+
+.maintenance-card__intro {
+  font-size: 0.85rem;
+  color: var(--tx-muted);
+  margin: 0 0 1.25rem;
+}
+
+.maintenance-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.5rem;
+}
+
+.maintenance-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.92rem;
+  color: var(--tx-navy);
+  cursor: pointer;
+}
+
+.maintenance-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.maintenance-option__control {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--tx-blue);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.maintenance-option input:checked + .maintenance-option__control::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--tx-blue);
+}
+
+.maintenance-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}

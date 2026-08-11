@@ -30,6 +30,35 @@ pub fn detect_dotnet() -> bool {
     }
 }
 
+/// Looks for an existing K2 install by scanning the Windows uninstall
+/// registry hive for a product whose DisplayName starts with "K2". This
+/// mirrors how the legacy SourceCode.SetupManager installer decided
+/// whether to show its Maintenance screen instead of a fresh install wizard.
+#[tauri::command]
+pub fn detect_k2_installed() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        const UNINSTALL_KEYS: [&str; 2] = [
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ];
+
+        for key in UNINSTALL_KEYS {
+            let output = Command::new("reg").args(["query", key, "/s", "/f", "K2", "/d"]).output();
+            if let Ok(output) = output {
+                if output.status.success() && !output.stdout.is_empty() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 fn dotnet_runner_path() -> PathBuf {
     let mut path = std::env::current_exe().unwrap_or_default();
     path.pop();

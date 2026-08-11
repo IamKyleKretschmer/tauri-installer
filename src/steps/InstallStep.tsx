@@ -35,7 +35,7 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
           setProgress((prev) => ({ ...prev, [task.id]: pct }));
           await new Promise((r) => setTimeout(r, 150));
         }
-        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} — complete`]);
+        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - complete`]);
       }
       if (!cancelled) onDone();
     }

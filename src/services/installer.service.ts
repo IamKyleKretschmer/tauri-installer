@@ -73,7 +73,7 @@ export function getPrerequisites(dotnetPresent: boolean): PrerequisiteItem[] {
       id: "dotnet",
       name: ".NET Framework 4.8",
       description: dotnetPresent
-        ? "Detected — meets 4.6.1 requirement"
+        ? "Detected, meets 4.6.1 requirement"
         : "Not found. .NET Framework 4.8 will be installed",
       status: dotnetPresent ? "present" : "will-install",
     },
@@ -114,6 +114,10 @@ export async function installPrerequisites(
     }
     onLog({ timestamp: currentTime(), message: `${item.name} installed successfully` });
   }
+}
+
+export async function detectK2Installed(): Promise<boolean> {
+  return tauriBridge.detectK2Installed().catch(() => false);
 }
 
 export async function greetFromRust(name: string): Promise<string> {

@@ -1,4 +1,4 @@
-# K2 Setup — Tauri + Textura Desktop Installer Spike
+# K2 Setup - Tauri + Textura Desktop Installer Spike
 
 Sprint 1 spike validating that a Textura-styled React UI can run inside a
 native Tauri/WebView2 window and call into .NET Framework 4.8 logic via IPC.
@@ -8,9 +8,9 @@ native Tauri/WebView2 window and call into .NET Framework 4.8 logic via IPC.
 - Desktop shell: Tauri v2 (Rust)
 - Frontend: React 18 + TypeScript + Vite
 - Design system: custom CSS approximating `@exp-textura/react` (private
-  package not installable in this environment — see Notes)
-- Backend IPC: Tauri commands (`src-tauri/src/commands.rs`) → `child_process`
-  → .NET
+  package not installable in this environment, see Notes)
+- Backend IPC: Tauri commands (`src-tauri/src/commands.rs`) -> `child_process`
+  -> .NET
 - .NET target: `.NET Framework 4.8` console exe (`DotNetRunner/`)
 
 ## Structure
@@ -53,6 +53,6 @@ dotnet build
   components once registry access (or a local `exp-textura` build) is
   available.
 - This container has no `webkit2gtk`/`gdk` system libraries, so
-  `cargo check` fails at the linking step for the GTK WebView backend — the
+  `cargo check` fails at the linking step for the GTK WebView backend. The
   Rust source itself compiles cleanly. The app targets Windows/WebView2 per
   the spec.

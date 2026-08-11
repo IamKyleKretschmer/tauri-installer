@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar, STEPS } from "./components/Sidebar";
 import { WizardShell } from "./components/WizardShell";
 import { WelcomeStep } from "./steps/WelcomeStep";
+import { MaintenanceStep } from "./steps/MaintenanceStep";
+import type { MaintenanceAction } from "./steps/MaintenanceStep";
+import { Button } from "./components/primitives";
 import { SystemCheckStep } from "./steps/SystemCheckStep";
 import { PrerequisitesInstallStep, PrerequisitesStep } from "./steps/PrerequisitesStep";
 import { SqlServerStep } from "./steps/SqlServerStep";
@@ -15,6 +18,7 @@ import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
 import type { SystemCheckItem } from "./services/installer.service";
+import { detectK2Installed } from "./services/installer.service";
 import "./App.css";
 
 export type WizardStep =
@@ -80,6 +84,14 @@ function App() {
   const [adConfig, setAdConfig] = useState<ActiveDirectoryConfig>(DEFAULT_AD_CONFIG);
   const [networkConfig, setNetworkConfig] = useState<NetworkTlsConfig>(DEFAULT_NETWORK_CONFIG);
 
+  const [k2Installed, setK2Installed] = useState<boolean | null>(null);
+  const [maintenanceAction, setMaintenanceAction] = useState<MaintenanceAction>("configure");
+  const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
+
+  useEffect(() => {
+    detectK2Installed().then(setK2Installed);
+  }, []);
+
   const index = ORDER.indexOf(step);
 
   function goTo(next: WizardStep) {
@@ -122,7 +134,7 @@ function App() {
       break;
     case "prerequisites":
       body = <PrerequisitesStep dotnetPresent={dotnetPresent} />;
-      nextLabel = "Next – install 3 items";
+      nextLabel = "Next - install 3 items";
       break;
     case "prerequisites-install":
       body = <PrerequisitesInstallStep dotnetPresent={dotnetPresent} onDone={() => goTo("sql-server")} />;
@@ -155,6 +167,39 @@ function App() {
       break;
   }
 
+  if (k2Installed && maintenanceChosen === null) {
+    return (
+      <div className="app-shell">
+        <MaintenanceStep
+          selected={maintenanceAction}
+          onSelect={setMaintenanceAction}
+          onContinue={() => setMaintenanceChosen(maintenanceAction)}
+        />
+      </div>
+    );
+  }
+
+  if (maintenanceChosen && maintenanceChosen !== "configure") {
+    return (
+      <div className="app-shell">
+        <div className="maintenance-gate">
+          <div className="maintenance-card">
+            <h2 className="maintenance-card__title">{capitalize(maintenanceChosen)}</h2>
+            <p className="maintenance-card__intro">
+              {capitalize(maintenanceChosen)} is not implemented in this spike. Sprint 1 only covers a fresh
+              install (the Configure path).
+            </p>
+            <div className="maintenance-card__actions">
+              <Button variant="secondary" onClick={() => setMaintenanceChosen(null)}>
+                Back
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -175,6 +220,10 @@ function App() {
       </WizardShell>
     </div>
   );
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export default App;
