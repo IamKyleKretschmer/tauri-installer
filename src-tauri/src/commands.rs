@@ -124,11 +124,35 @@ pub fn get_installed_k2_version() -> Option<String> {
     }
 }
 
+/// Locates DotNetRunner.exe. In a bundled/production build it ships next
+/// to the K2 Setup executable. In `cargo tauri dev` there is no bundle
+/// step, so the exe-adjacent path (target/debug) never has it, this also
+/// checks DotNetRunner's own dev build output (`dotnet build` from the
+/// DotNetRunner/ directory) so `npm run tauri dev` works without a manual
+/// copy step.
 fn dotnet_runner_path() -> PathBuf {
-    let mut path = std::env::current_exe().unwrap_or_default();
-    path.pop();
-    path.push("DotNetRunner.exe");
-    path
+    let mut adjacent = std::env::current_exe().unwrap_or_default();
+    adjacent.pop();
+    adjacent.push("DotNetRunner.exe");
+    if adjacent.exists() {
+        return adjacent;
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for profile in ["Debug", "Release"] {
+        let dev_path = manifest_dir
+            .join("..")
+            .join("DotNetRunner")
+            .join("bin")
+            .join(profile)
+            .join("net48")
+            .join("DotNetRunner.exe");
+        if dev_path.exists() {
+            return dev_path;
+        }
+    }
+
+    adjacent
 }
 
 #[tauri::command]
