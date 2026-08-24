@@ -83,39 +83,53 @@ export async function runSystemChecks(
   }
 }
 
-export function getPrerequisites(dotnetPresent: boolean): PrerequisiteItem[] {
+/**
+ * Builds the Prerequisites list from real detection results. SQL Server,
+ * IIS, and .NET reuse whatever System check already found (so the machine
+ * isn't queried twice); VC++ Redistributable and Active Directory are
+ * queried fresh since System check doesn't cover them.
+ */
+export async function getPrerequisites(systemChecks: SystemCheckItem[]): Promise<PrerequisiteItem[]> {
+  const findStatus = (id: string) => systemChecks.find((c) => c.id === id);
+  const sql = findStatus("sql");
+  const iis = findStatus("iis");
+  const dotnet = findStatus("dotnet");
+
+  const [vcredist, domain] = await Promise.all([
+    tauriBridge.checkVcRedist().catch(() => ({ pass: false, detail: "Could not determine VC++ Redistributable status" })),
+    tauriBridge.checkDomainJoined().catch(() => ({ pass: false, detail: "Could not determine domain membership" })),
+  ]);
+
   return [
     {
       id: "sql",
-      name: "SQL Server 2019",
-      description: "Not found. SQL Server Express 2019 will be installed",
-      status: "will-install",
+      name: "SQL Server",
+      description: sql?.detail ?? "SQL Server Express will be installed",
+      status: sql?.status === "pass" ? "present" : "will-install",
     },
     {
       id: "iis",
-      name: "IIS 10.0",
-      description: "Not found. IIS will be enabled via Windows Features.",
-      status: "will-install",
+      name: "IIS",
+      description: iis?.detail ?? "IIS will be enabled via Windows Features.",
+      status: iis?.status === "pass" ? "present" : "will-install",
     },
     {
       id: "dotnet",
       name: ".NET Framework 4.8",
-      description: dotnetPresent
-        ? "Detected, meets 4.6.1 requirement"
-        : "Not found. .NET Framework 4.8 will be installed",
-      status: dotnetPresent ? "present" : "will-install",
+      description: dotnet?.detail ?? "Not found. .NET Framework 4.8 will be installed",
+      status: dotnet?.status === "pass" ? "present" : "will-install",
     },
     {
       id: "ad",
       name: "Active Directory",
-      description: "Domain membership detected. Will configure in a later step",
-      status: "present",
+      description: domain.detail,
+      status: domain.pass ? "present" : "will-install",
     },
     {
       id: "vcredist",
-      name: "VC++ Redistributable 2019",
-      description: "Not found. Required by SQL Server components.",
-      status: "will-install",
+      name: "VC++ Redistributable",
+      description: vcredist.detail,
+      status: vcredist.pass ? "present" : "will-install",
     },
   ];
 }

@@ -220,3 +220,73 @@ pub fn check_iis() -> CheckResult {
         unsupported("IIS")
     }
 }
+
+/// Checks the official Microsoft-documented registry location for the
+/// VC++ 2015-2022 x64 redistributable (the "Runtimes" key, present under
+/// both the native and WOW6432Node hives depending on OS architecture).
+#[tauri::command]
+pub fn check_vc_redist() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$keys = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\X64',
+    'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64'
+)
+foreach ($key in $keys) {
+    if (Test-Path $key) {
+        $item = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+        if ($item.Installed -eq 1) {
+            "$($item.Version)"
+            break
+        }
+    }
+}
+"#;
+        match run_powershell(script) {
+            Some(version) => CheckResult {
+                pass: true,
+                detail: format!("VC++ Redistributable {} installed", version.trim()),
+            },
+            None => CheckResult {
+                pass: false,
+                detail: "Not found. Required by SQL Server components.".to_string(),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("VC++ Redistributable")
+    }
+}
+
+/// Checks whether this machine is joined to an Active Directory domain.
+#[tauri::command]
+pub fn check_domain_joined() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"$cs = Get-CimInstance Win32_ComputerSystem; "$($cs.PartOfDomain)|$($cs.Domain)""#;
+        if let Some(out) = run_powershell(script) {
+            let parts: Vec<&str> = out.split('|').map(str::trim).collect();
+            if let [part_of_domain, domain] = parts.as_slice() {
+                let pass = part_of_domain.eq_ignore_ascii_case("true");
+                return CheckResult {
+                    pass,
+                    detail: if pass {
+                        format!("Domain detected: {domain}. This machine is domain-joined.")
+                    } else {
+                        "This machine is not joined to an Active Directory domain.".to_string()
+                    },
+                };
+            }
+        }
+        CheckResult {
+            pass: false,
+            detail: "Could not determine domain membership".to_string(),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Active Directory")
+    }
+}

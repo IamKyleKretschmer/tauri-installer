@@ -17,7 +17,7 @@ import { NetworkTlsStep } from "./steps/NetworkTlsStep";
 import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
-import type { SystemCheckItem } from "./services/installer.service";
+import type { PrerequisiteItem, SystemCheckItem } from "./services/installer.service";
 import { detectK2Installed } from "./services/installer.service";
 import "./App.css";
 
@@ -78,7 +78,8 @@ function App() {
   const [step, setStep] = useState<WizardStep>("welcome");
   const [completed, setCompleted] = useState<Set<WizardStep>>(new Set());
   const [systemChecksDone, setSystemChecksDone] = useState(false);
-  const [dotnetPresent, setDotnetPresent] = useState(false);
+  const [systemCheckItems, setSystemCheckItems] = useState<SystemCheckItem[]>([]);
+  const [prerequisiteItems, setPrerequisiteItems] = useState<PrerequisiteItem[] | null>(null);
   const [sqlConfig, setSqlConfig] = useState<SqlServerConfig>(DEFAULT_SQL_CONFIG);
   const [iisConfig, setIisConfig] = useState<IisNetConfig>(DEFAULT_IIS_CONFIG);
   const [adConfig, setAdConfig] = useState<ActiveDirectoryConfig>(DEFAULT_AD_CONFIG);
@@ -126,18 +127,25 @@ function App() {
         <SystemCheckStep
           onComplete={(items: SystemCheckItem[]) => {
             setSystemChecksDone(true);
-            setDotnetPresent(items.find((i) => i.id === "dotnet")?.status === "pass");
+            setSystemCheckItems(items);
           }}
         />
       );
       nextDisabled = !systemChecksDone;
       break;
-    case "prerequisites":
-      body = <PrerequisitesStep dotnetPresent={dotnetPresent} />;
-      nextLabel = "Next - install 3 items";
+    case "prerequisites": {
+      const toInstallCount = prerequisiteItems?.filter((i) => i.status === "will-install").length ?? 0;
+      body = <PrerequisitesStep systemChecks={systemCheckItems} onLoaded={setPrerequisiteItems} />;
+      nextLabel = prerequisiteItems
+        ? toInstallCount > 0
+          ? `Next - install ${toInstallCount} item${toInstallCount === 1 ? "" : "s"}`
+          : "Next"
+        : "Checking...";
+      nextDisabled = !prerequisiteItems;
       break;
+    }
     case "prerequisites-install":
-      body = <PrerequisitesInstallStep dotnetPresent={dotnetPresent} onDone={() => goTo("sql-server")} />;
+      body = <PrerequisitesInstallStep items={prerequisiteItems ?? []} onDone={() => goTo("sql-server")} />;
       nextDisabled = true;
       break;
     case "sql-server":

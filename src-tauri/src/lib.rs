@@ -19,6 +19,8 @@ pub fn run() {
             system_checks::check_display,
             system_checks::check_sql_server,
             system_checks::check_iis,
+            system_checks::check_vc_redist,
+            system_checks::check_domain_joined,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

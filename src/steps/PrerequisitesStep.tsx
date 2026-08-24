@@ -1,10 +1,36 @@
 import { useEffect, useRef, useState } from "react";
-import type { InstallLogLine, PrerequisiteItem } from "../services/installer.service";
+import type { InstallLogLine, PrerequisiteItem, SystemCheckItem } from "../services/installer.service";
 import { getPrerequisites, installPrerequisites } from "../services/installer.service";
 import { Badge } from "../components/primitives";
 
-export function PrerequisitesStep({ dotnetPresent }: { dotnetPresent: boolean }) {
-  const items = getPrerequisites(dotnetPresent);
+export function PrerequisitesStep({
+  systemChecks,
+  onLoaded,
+}: {
+  systemChecks: SystemCheckItem[];
+  onLoaded: (items: PrerequisiteItem[]) => void;
+}) {
+  const [items, setItems] = useState<PrerequisiteItem[] | null>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    getPrerequisites(systemChecks).then((result) => {
+      setItems(result);
+      onLoaded(result);
+    });
+  }, [systemChecks, onLoaded]);
+
+  if (!items) {
+    return (
+      <div>
+        <h1 className="step-title step-title--sm">Prerequisites</h1>
+        <p className="step-intro">Checking for VC++ Redistributable and Active Directory membership...</p>
+      </div>
+    );
+  }
+
   const toInstallCount = items.filter((i) => i.status === "will-install").length;
 
   return (
@@ -35,13 +61,13 @@ export function PrerequisitesStep({ dotnetPresent }: { dotnetPresent: boolean })
 }
 
 export function PrerequisitesInstallStep({
-  dotnetPresent,
+  items,
   onDone,
 }: {
-  dotnetPresent: boolean;
+  items: PrerequisiteItem[];
   onDone: () => void;
 }) {
-  const items = getPrerequisites(dotnetPresent).filter((i) => i.status === "will-install");
+  const toInstall = items.filter((i) => i.status === "will-install");
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [log, setLog] = useState<InstallLogLine[]>([]);
   const started = useRef(false);
@@ -50,14 +76,14 @@ export function PrerequisitesInstallStep({
     if (started.current) return;
     started.current = true;
     void installPrerequisites(
-      items as PrerequisiteItem[],
+      toInstall,
       (id, pct) => setProgress((prev) => ({ ...prev, [id]: pct })),
       (line) => setLog((prev) => [...prev, line]),
     ).then(onDone);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const completedCount = items.filter((i) => (progress[i.id] ?? 0) >= 100).length;
+  const completedCount = toInstall.filter((i) => (progress[i.id] ?? 0) >= 100).length;
 
   return (
     <div>
@@ -65,7 +91,7 @@ export function PrerequisitesInstallStep({
       <p className="step-intro">Please wait. Do not close this window</p>
 
       <div className="prereq-list">
-        {items.map((item) => {
+        {toInstall.map((item) => {
           const pct = progress[item.id] ?? 0;
           return (
             <div className="prereq-progress-row" key={item.id}>
@@ -95,7 +121,7 @@ export function PrerequisitesInstallStep({
       </pre>
 
       <p className="step-intro">
-        Installing {completedCount} of {items.length}…
+        Installing {completedCount} of {toInstall.length}…
       </p>
     </div>
   );
