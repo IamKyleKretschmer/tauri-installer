@@ -135,13 +135,16 @@ function App() {
       break;
     case "prerequisites": {
       const toInstallCount = prerequisiteItems?.filter((i) => i.status === "will-install").length ?? 0;
+      const hasBlocker = prerequisiteItems?.some((i) => i.status === "blocked") ?? false;
       body = <PrerequisitesStep systemChecks={systemCheckItems} onLoaded={setPrerequisiteItems} />;
       nextLabel = prerequisiteItems
         ? toInstallCount > 0
           ? `Next - install ${toInstallCount} item${toInstallCount === 1 ? "" : "s"}`
           : "Next"
         : "Checking...";
-      nextDisabled = !prerequisiteItems;
+      // A blocked item (e.g. missing .NET Framework) cannot be
+      // auto-installed, matching the legacy installer's hard stop.
+      nextDisabled = !prerequisiteItems || hasBlocker;
       break;
     }
     case "prerequisites-install":

@@ -24,7 +24,14 @@ export interface PrerequisiteItem {
   id: string;
   name: string;
   description: string;
-  status: "present" | "will-install";
+  /**
+   * "blocked" means this cannot be auto-installed and setup cannot
+   * continue until it's resolved manually, matching the legacy installer:
+   * a missing .NET Framework is a hard stop ("prerequisite not met...
+   * installation cannot continue"), unlike SQL Server/IIS/VC++
+   * Redistributable, which the wizard offers to install automatically.
+   */
+  status: "present" | "will-install" | "blocked";
 }
 
 const SYSTEM_CHECKS: Omit<SystemCheckItem, "status">[] = [
@@ -116,8 +123,11 @@ export async function getPrerequisites(systemChecks: SystemCheckItem[]): Promise
     {
       id: "dotnet",
       name: ".NET Framework 4.8",
-      description: dotnet?.detail ?? "Not found. .NET Framework 4.8 will be installed",
-      status: dotnet?.status === "pass" ? "present" : "will-install",
+      description:
+        dotnet?.status === "pass"
+          ? (dotnet.detail ?? "Detected")
+          : "Microsoft .NET Framework prerequisite not met. Installation cannot continue until this is resolved.",
+      status: dotnet?.status === "pass" ? "present" : "blocked",
     },
     {
       id: "ad",
