@@ -94,6 +94,14 @@
   background: #dfe6fa;
   color: #24356f;
 }
+.callout--success {
+  background: #d9f2df;
+  color: #1a4d2b;
+}
+.callout--error {
+  background: #fbdede;
+  color: #7a1f1f;
+}
 
 .check-list {
   display: flex;

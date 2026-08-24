@@ -12,6 +12,7 @@ pub fn run() {
             commands::detect_k2_installed,
             commands::get_installed_k2_version,
             commands::run_dotnet,
+            commands::test_sql_connection,
             system_checks::check_os,
             system_checks::check_cpu,
             system_checks::check_ram,

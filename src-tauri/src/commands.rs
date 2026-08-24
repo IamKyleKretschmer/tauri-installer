@@ -145,3 +145,28 @@ pub fn run_dotnet(input: String) -> Result<String, String> {
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+/// Tests connectivity to a SQL Server instance and ensures the given
+/// database exists (DotNetRunner creates it with the required collation
+/// if missing), via `SourceCode.SetupManager`'s reference architecture:
+/// Rust spawns the .NET Framework helper and captures its stdout/stderr.
+#[tauri::command]
+pub fn test_sql_connection(
+    instance: String,
+    auth_mode: String,
+    username: String,
+    password: String,
+    database: String,
+) -> Result<String, String> {
+    let runner = dotnet_runner_path();
+    let output = Command::new(runner)
+        .args(["test-sql", &instance, &auth_mode, &username, &password, &database])
+        .output()
+        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}

@@ -8,13 +8,18 @@ namespace DotNetRunner
         {
             if (args.Length == 0)
             {
-                Console.Error.WriteLine("Usage: DotNetRunner.exe <input>");
+                Console.Error.WriteLine("Usage: DotNetRunner.exe <command> [args]");
                 return 1;
             }
 
-            string input = args[0];
-            Console.WriteLine($"Processed by .NET Framework {Environment.Version}: {input}");
-            return 0;
+            switch (args[0])
+            {
+                case "test-sql":
+                    return SqlServerCheck.TestConnectionAndDatabase(args);
+                default:
+                    Console.WriteLine($"Processed by .NET Framework {Environment.Version}: {args[0]}");
+                    return 0;
+            }
         }
     }
 }

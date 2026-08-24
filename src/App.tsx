@@ -17,8 +17,8 @@ import { NetworkTlsStep } from "./steps/NetworkTlsStep";
 import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
-import type { PrerequisiteItem, SystemCheckItem } from "./services/installer.service";
-import { detectK2Installed } from "./services/installer.service";
+import type { PrerequisiteItem, SqlConnectionTestResult, SystemCheckItem } from "./services/installer.service";
+import { detectK2Installed, testSqlConnection } from "./services/installer.service";
 import "./App.css";
 
 export type WizardStep =
@@ -89,6 +89,9 @@ function App() {
   const [maintenanceAction, setMaintenanceAction] = useState<MaintenanceAction>("configure");
   const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
 
+  const [sqlTesting, setSqlTesting] = useState(false);
+  const [sqlTestResult, setSqlTestResult] = useState<SqlConnectionTestResult | null>(null);
+
   useEffect(() => {
     detectK2Installed().then(setK2Installed);
   }, []);
@@ -105,8 +108,24 @@ function App() {
     setStep(ORDER[index - 1]);
   }
 
-  function handleNext() {
+  async function handleNext() {
     if (index >= ORDER.length - 1) return;
+
+    if (step === "sql-server") {
+      setSqlTesting(true);
+      setSqlTestResult(null);
+      const result = await testSqlConnection({
+        instance: sqlConfig.instance,
+        authMode: sqlConfig.authMode,
+        username: sqlConfig.username,
+        password: sqlConfig.password,
+        database: sqlConfig.databaseName,
+      });
+      setSqlTesting(false);
+      setSqlTestResult(result);
+      if (!result.success) return;
+    }
+
     goTo(ORDER[index + 1]);
   }
 
@@ -152,8 +171,18 @@ function App() {
       nextDisabled = true;
       break;
     case "sql-server":
-      body = <SqlServerStep config={sqlConfig} onChange={setSqlConfig} />;
-      nextLabel = "Test connection & Next";
+      body = (
+        <SqlServerStep
+          config={sqlConfig}
+          onChange={(next) => {
+            setSqlConfig(next);
+            setSqlTestResult(null);
+          }}
+          testResult={sqlTestResult}
+        />
+      );
+      nextLabel = sqlTesting ? "Testing connection..." : "Test connection & Next";
+      nextDisabled = sqlTesting;
       break;
     case "iis-net":
       body = <IisNetStep config={iisConfig} onChange={setIisConfig} />;

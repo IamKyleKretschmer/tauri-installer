@@ -47,4 +47,18 @@ export const tauriBridge = {
   checkIis: () => invoke<CheckResult>("check_iis"),
   checkVcRedist: () => invoke<CheckResult>("check_vc_redist"),
   checkDomainJoined: () => invoke<CheckResult>("check_domain_joined"),
+  testSqlConnection: (params: {
+    instance: string;
+    authMode: string;
+    username: string;
+    password: string;
+    database: string;
+  }) =>
+    invoke<string>("test_sql_connection", {
+      instance: params.instance,
+      authMode: params.authMode,
+      username: params.username,
+      password: params.password,
+      database: params.database,
+    }),
 };

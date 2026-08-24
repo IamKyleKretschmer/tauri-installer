@@ -144,6 +144,33 @@ export async function getPrerequisites(systemChecks: SystemCheckItem[]): Promise
   ];
 }
 
+export interface SqlConnectionTestParams {
+  instance: string;
+  authMode: "sql" | "windows";
+  username: string;
+  password: string;
+  database: string;
+}
+
+export interface SqlConnectionTestResult {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Tests the SQL Server connection and ensures the dedicated K2 database
+ * exists, via DotNetRunner (spawned by the Rust test_sql_connection
+ * command), same reference architecture as run_dotnet.
+ */
+export async function testSqlConnection(params: SqlConnectionTestParams): Promise<SqlConnectionTestResult> {
+  try {
+    const message = await tauriBridge.testSqlConnection(params);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export interface InstallLogLine {
   timestamp: string;
   message: string;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Select, TextInput } from "../components/primitives";
+import type { SqlConnectionTestResult } from "../services/installer.service";
 
 export interface SqlServerConfig {
   instanceSource: "existing" | "new";
@@ -13,9 +14,11 @@ export interface SqlServerConfig {
 export function SqlServerStep({
   config,
   onChange,
+  testResult,
 }: {
   config: SqlServerConfig;
   onChange: (config: SqlServerConfig) => void;
+  testResult?: SqlConnectionTestResult | null;
 }) {
   const [local, setLocal] = useState(config);
 
@@ -31,6 +34,12 @@ export function SqlServerStep({
       <p className="step-intro">K2 requires a SQL Server instance and a dedicated database.</p>
 
       <div className="callout callout--info">Collation will be set to SQL_Latin1_General_CP1_CI_AS automatically.</div>
+
+      {testResult && (
+        <div className={`callout ${testResult.success ? "callout--success" : "callout--error"}`}>
+          {testResult.message}
+        </div>
+      )}
 
       <div className="toggle-row">
         <button

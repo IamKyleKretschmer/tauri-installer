@@ -7,4 +7,8 @@
     <AssemblyName>DotNetRunner</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Reference Include="System.Data" />
+  </ItemGroup>
+
 </Project>
