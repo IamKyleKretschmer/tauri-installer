@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ProductInfo } from "../services/installer.service";
-import { getProductInfo } from "../services/installer.service";
+import { getInstalledK2Version, getProductInfo } from "../services/installer.service";
 
 const WILL_DO = [
   "Check your hardware and OS compatibility",
@@ -13,12 +13,16 @@ const WILL_DO = [
 
 export function WelcomeStep() {
   const [product, setProduct] = useState<ProductInfo | null>(null);
+  const [installedVersion, setInstalledVersion] = useState<string | null | "checking">("checking");
 
   useEffect(() => {
     getProductInfo()
       .then(setProduct)
       .catch(() => setProduct(null));
+    getInstalledK2Version().then(setInstalledVersion);
   }, []);
+
+  const installedLabel = installedVersion === "checking" ? "Checking..." : installedVersion || "Not installed";
 
   return (
     <div>
@@ -28,7 +32,11 @@ export function WelcomeStep() {
         ensure you have administrator rights and network access.
       </p>
 
-      <div className="info-grid">
+      <div className="info-grid info-grid--3">
+        <div className="info-card">
+          <h3>Currently installed</h3>
+          <p>{installedLabel}</p>
+        </div>
         <div className="info-card">
           <h3>Installing version</h3>
           <p>{product ? product.fullVersion : "Checking..."}</p>
