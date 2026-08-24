@@ -8,7 +8,7 @@ export async function getProductInfo(): Promise<ProductInfo> {
 }
 
 export async function getInstalledK2Version(): Promise<string | null> {
-  return tauriBridge.getInstalledK2Version().catch(() => null);
+  return tauriBridge.getInstalledK2Version();
 }
 
 export type CheckStatus = "pending" | "checking" | "pass" | "fail";

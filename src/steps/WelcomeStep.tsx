@@ -11,18 +11,34 @@ const WILL_DO = [
   "Install K2 Server components",
 ];
 
+type LoadState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
+
 export function WelcomeStep() {
-  const [product, setProduct] = useState<ProductInfo | null>(null);
-  const [installedVersion, setInstalledVersion] = useState<string | null | "checking">("checking");
+  const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
+  const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
 
   useEffect(() => {
     getProductInfo()
-      .then(setProduct)
-      .catch(() => setProduct(null));
-    getInstalledK2Version().then(setInstalledVersion);
+      .then((value) => setProduct({ status: "ready", value }))
+      .catch(() => setProduct({ status: "error" }));
+
+    getInstalledK2Version()
+      .then((value) => setInstalledVersion({ status: "ready", value }))
+      .catch(() => setInstalledVersion({ status: "error" }));
   }, []);
 
-  const installedLabel = installedVersion === "checking" ? "Checking..." : installedVersion || "Not installed";
+  const installedLabel =
+    installedVersion.status === "loading"
+      ? "Checking..."
+      : installedVersion.status === "error"
+        ? "Unavailable (run via npm run tauri dev)"
+        : installedVersion.value || "Not installed";
+
+  const productLabel = (pick: (info: ProductInfo) => string) => {
+    if (product.status === "loading") return "Checking...";
+    if (product.status === "error") return "Unavailable (run via npm run tauri dev)";
+    return pick(product.value);
+  };
 
   return (
     <div>
@@ -39,11 +55,11 @@ export function WelcomeStep() {
         </div>
         <div className="info-card">
           <h3>Installing version</h3>
-          <p>{product ? product.fullVersion : "Checking..."}</p>
+          <p>{productLabel((info) => info.fullVersion)}</p>
         </div>
         <div className="info-card">
           <h3>Install type</h3>
-          <p>{product ? product.installType : "Checking..."}</p>
+          <p>{productLabel((info) => info.installType)}</p>
         </div>
       </div>
 

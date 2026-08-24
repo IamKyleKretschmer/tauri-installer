@@ -24,7 +24,9 @@ export function MaintenanceStep({
   const [installedVersion, setInstalledVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    getInstalledK2Version().then(setInstalledVersion);
+    getInstalledK2Version()
+      .then(setInstalledVersion)
+      .catch(() => setInstalledVersion(null));
   }, []);
 
   return (
