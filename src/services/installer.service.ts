@@ -17,6 +17,7 @@ export interface SystemCheckItem {
   id: string;
   label: string;
   status: CheckStatus;
+  detail?: string;
 }
 
 export interface PrerequisiteItem {
@@ -41,9 +42,24 @@ export function createInitialSystemChecks(): SystemCheckItem[] {
   return SYSTEM_CHECKS.map((c) => ({ ...c, status: "pending" }));
 }
 
+const CHECK_RUNNERS: Record<string, () => Promise<{ pass: boolean; detail: string }>> = {
+  os: () => tauriBridge.checkOs(),
+  cpu: () => tauriBridge.checkCpu(),
+  ram: () => tauriBridge.checkRam(),
+  disk: () => tauriBridge.checkDisk(),
+  display: () => tauriBridge.checkDisplay(),
+  sql: () => tauriBridge.checkSqlServer(),
+  iis: () => tauriBridge.checkIis(),
+  dotnet: async () => {
+    const pass = await tauriBridge.detectDotNet();
+    return { pass, detail: pass ? ".NET Framework 4.6.1 or later detected" : "Not detected" };
+  },
+};
+
 /**
- * Runs the system check sequence, invoking the caller's onUpdate for each
- * item as it transitions from pending -> checking -> pass/fail.
+ * Runs the system check sequence against the real backend commands,
+ * invoking the caller's onUpdate for each item as it transitions from
+ * pending -> checking -> pass/fail.
  */
 export async function runSystemChecks(
   onUpdate: (items: SystemCheckItem[]) => void,
@@ -54,13 +70,14 @@ export async function runSystemChecks(
   for (let i = 0; i < items.length; i++) {
     items[i].status = "checking";
     onUpdate([...items]);
-    await delay(450);
 
-    if (items[i].id === "dotnet") {
-      const hasDotNet = await tauriBridge.detectDotNet().catch(() => false);
-      items[i].status = hasDotNet ? "pass" : "fail";
-    } else {
-      items[i].status = "pass";
+    try {
+      const result = await CHECK_RUNNERS[items[i].id]();
+      items[i].status = result.pass ? "pass" : "fail";
+      items[i].detail = result.detail;
+    } catch (error) {
+      items[i].status = "fail";
+      items[i].detail = error instanceof Error ? error.message : String(error);
     }
     onUpdate([...items]);
   }

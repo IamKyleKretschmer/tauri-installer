@@ -44,6 +44,9 @@ export function SystemCheckStep({ onComplete }: { onComplete: (items: SystemChec
                 style={{ width: item.status === "pending" ? "0%" : item.status === "checking" ? "55%" : "100%" }}
               />
             </div>
+            {item.detail && (item.status === "pass" || item.status === "fail") && (
+              <p className="check-row__detail">{item.detail}</p>
+            )}
           </div>
         ))}
       </div>

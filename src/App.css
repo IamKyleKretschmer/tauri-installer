@@ -143,6 +143,12 @@
   background: transparent;
 }
 
+.check-row__detail {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--tx-muted);
+}
+
 .prereq-list {
   display: flex;
   flex-direction: column;
