@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    scaffold_lib::run()
+    k2_installer_lib::run()
 }
