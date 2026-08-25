@@ -1,7 +1,7 @@
 import { tauriBridge } from "./tauri.bridge";
-import type { ProductInfo } from "./tauri.bridge";
+import type { CertificateInfo, CheckResult, ProductInfo } from "./tauri.bridge";
 
-export type { ProductInfo };
+export type { ProductInfo, CertificateInfo, CheckResult };
 
 export type LoadState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
 
@@ -51,7 +51,12 @@ export function createInitialSystemChecks(): SystemCheckItem[] {
   return SYSTEM_CHECKS.map((c) => ({ ...c, status: "pending" }));
 }
 
-const CHECK_RUNNERS: Record<string, () => Promise<{ pass: boolean; detail: string }>> = {
+async function getDotNetStatus(): Promise<CheckResult> {
+  const pass = await tauriBridge.detectDotNet();
+  return { pass, detail: pass ? ".NET Framework 4.6.1 or later detected" : "Not detected" };
+}
+
+const CHECK_RUNNERS: Record<string, () => Promise<CheckResult>> = {
   os: () => tauriBridge.checkOs(),
   cpu: () => tauriBridge.checkCpu(),
   ram: () => tauriBridge.checkRam(),
@@ -59,10 +64,7 @@ const CHECK_RUNNERS: Record<string, () => Promise<{ pass: boolean; detail: strin
   display: () => tauriBridge.checkDisplay(),
   sql: () => tauriBridge.checkSqlServer(),
   iis: () => tauriBridge.checkIis(),
-  dotnet: async () => {
-    const pass = await tauriBridge.detectDotNet();
-    return { pass, detail: pass ? ".NET Framework 4.6.1 or later detected" : "Not detected" };
-  },
+  dotnet: getDotNetStatus,
 };
 
 /**
@@ -154,10 +156,14 @@ export interface SqlConnectionTestParams {
   database: string;
 }
 
-export interface SqlConnectionTestResult {
+/** Generic pass/fail + message result shape shared by the wizard's
+ * connection/validation tests (SQL, Active Directory, ports). */
+export interface ActionResult {
   success: boolean;
   message: string;
 }
+
+export type SqlConnectionTestResult = ActionResult;
 
 /**
  * Tests the SQL Server connection and ensures the dedicated K2 database
@@ -199,6 +205,74 @@ export async function installPrerequisites(
 
 export async function detectK2Installed(): Promise<boolean> {
   return tauriBridge.detectK2Installed().catch(() => false);
+}
+
+/** IIS & .NET screen: real IIS/.NET status, cert store contents, port availability. */
+export interface IisChecks {
+  iis: CheckResult;
+  dotnet: CheckResult;
+  certificates: CertificateInfo[];
+}
+
+export async function getIisChecks(): Promise<IisChecks> {
+  const [iis, dotnet, certificates] = await Promise.all([
+    tauriBridge.checkIis().catch((): CheckResult => ({ pass: false, detail: "Could not determine IIS status" })),
+    getDotNetStatus().catch((): CheckResult => ({ pass: false, detail: "Could not determine .NET status" })),
+    tauriBridge.listCertificates().catch(() => [] as CertificateInfo[]),
+  ]);
+  return { iis, dotnet, certificates };
+}
+
+export async function checkPort(port: number): Promise<CheckResult> {
+  return tauriBridge.checkPort(port).catch(() => ({ pass: false, detail: `Could not check port ${port}` }));
+}
+
+/** Active Directory screen: real domain-join status. */
+export async function getDomainInfo(): Promise<CheckResult> {
+  return tauriBridge.checkDomainJoined().catch(() => ({ pass: false, detail: "Could not determine domain membership" }));
+}
+
+export interface AdValidationParams {
+  serviceAccount: string;
+  adminsGroup: string;
+  createGroupIfMissing: boolean;
+}
+
+export type AdValidationResult = ActionResult;
+
+/**
+ * Looks up the service account and admins group in Active Directory via
+ * DotNetRunner (read-only, never creates AD objects).
+ */
+export async function validateActiveDirectory(params: AdValidationParams): Promise<AdValidationResult> {
+  try {
+    const message = await tauriBridge.checkAdObjects(params);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Network & TLS screen: real TLS/IPv4 status and this machine's FQDN. */
+export interface NetworkChecks {
+  tls12: CheckResult;
+  tlsLegacy: CheckResult;
+  ipv4: CheckResult;
+}
+
+export async function getNetworkChecks(): Promise<NetworkChecks> {
+  const [tls12, tlsLegacy, ipv4] = await Promise.all([
+    tauriBridge.checkTls12().catch((): CheckResult => ({ pass: false, detail: "Could not determine TLS 1.2 status" })),
+    tauriBridge
+      .checkTlsLegacy()
+      .catch((): CheckResult => ({ pass: false, detail: "Could not determine TLS 1.0/1.1 status" })),
+    tauriBridge.checkIpv4().catch((): CheckResult => ({ pass: false, detail: "Could not determine IPv4 status" })),
+  ]);
+  return { tls12, tlsLegacy, ipv4 };
+}
+
+export async function getMachineFqdn(): Promise<string | null> {
+  return tauriBridge.getMachineFqdn().catch(() => null);
 }
 
 export async function greetFromRust(name: string): Promise<string> {

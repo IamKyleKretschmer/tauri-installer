@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Banner, TextInput, Toggle } from "../components/primitives";
+import type { ActionResult, CheckResult } from "../services/installer.service";
+import { getDomainInfo } from "../services/installer.service";
 
 export interface ActiveDirectoryConfig {
   serviceAccount: string;
@@ -11,11 +13,27 @@ export interface ActiveDirectoryConfig {
 export function ActiveDirectoryStep({
   config,
   onChange,
+  onLoaded,
+  validationResult,
 }: {
   config: ActiveDirectoryConfig;
   onChange: (config: ActiveDirectoryConfig) => void;
+  onLoaded: (domain: CheckResult) => void;
+  validationResult?: ActionResult | null;
 }) {
   const [local, setLocal] = useState(config);
+  const [domain, setDomain] = useState<CheckResult | null>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    getDomainInfo().then((result) => {
+      setDomain(result);
+      onLoaded(result);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function update(patch: Partial<ActiveDirectoryConfig>) {
     const next = { ...local, ...patch };
@@ -28,7 +46,9 @@ export function ActiveDirectoryStep({
       <h1 className="step-title step-title--sm">Active Directory</h1>
       <p className="step-intro">K2 uses AD for user authentication and group management.</p>
 
-      <Banner tone="success">Domain detected: contoso.local. This machine is domain-joined.</Banner>
+      <Banner tone={!domain ? "info" : domain.pass ? "success" : "warn"}>
+        {domain ? domain.detail : "Checking domain membership..."}
+      </Banner>
 
       <TextInput
         label="K2 service account"
@@ -57,6 +77,12 @@ export function ActiveDirectoryStep({
         onChange={(checked) => update({ createGroupIfMissing: checked })}
         label="Create this group in AD if it does not exist"
       />
+
+      {validationResult && (
+        <div className={`callout ${validationResult.success ? "callout--info" : "callout--warn"}`}>
+          {validationResult.message}
+        </div>
+      )}
     </div>
   );
 }

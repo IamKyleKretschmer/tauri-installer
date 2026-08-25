@@ -260,6 +260,189 @@ foreach ($key in $keys) {
     }
 }
 
+/// TLS 1.2 is on by default on Windows Server 2016+/Windows 10+ unless a
+/// SCHANNEL registry override explicitly disables it, so an absent key
+/// means enabled, not unknown.
+#[tauri::command]
+pub fn check_tls12() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$key = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Server'
+if (-not (Test-Path $key)) { "default-enabled" }
+else {
+    $item = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+    $enabled = ($item.Enabled -ne 0) -and ($item.DisabledByDefault -ne 1)
+    if ($enabled) { "enabled" } else { "disabled" }
+}
+"#;
+        match run_powershell(script).as_deref() {
+            Some("default-enabled") => CheckResult {
+                pass: true,
+                detail: "Enabled by default (no registry override present)".to_string(),
+            },
+            Some("enabled") => CheckResult {
+                pass: true,
+                detail: "Detected as enabled in Schannel registry".to_string(),
+            },
+            _ => CheckResult {
+                pass: false,
+                detail: "Currently disabled. K2 requires TLS 1.2.".to_string(),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("TLS 1.2")
+    }
+}
+
+/// Passes when TLS 1.0 and 1.1 are already disabled (nothing for
+/// Prerequisites/Install to do); fails (needs action) if either is still
+/// enabled or left at its OS default, which is enabled on older builds.
+#[tauri::command]
+pub fn check_tls_legacy() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+function Test-Disabled($version) {
+    $key = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\$version\Server"
+    if (-not (Test-Path $key)) { return $false }
+    $item = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+    return ($item.Enabled -eq 0) -or ($item.DisabledByDefault -eq 1)
+}
+$tls10 = Test-Disabled 'TLS 1.0'
+$tls11 = Test-Disabled 'TLS 1.1'
+"$tls10|$tls11"
+"#;
+        if let Some(out) = run_powershell(script) {
+            let parts: Vec<&str> = out.split('|').map(str::trim).collect();
+            if let [tls10, tls11] = parts.as_slice() {
+                let both_disabled = tls10.eq_ignore_ascii_case("true") && tls11.eq_ignore_ascii_case("true");
+                return CheckResult {
+                    pass: both_disabled,
+                    detail: if both_disabled {
+                        "TLS 1.0 and 1.1 are already disabled".to_string()
+                    } else {
+                        "Currently enabled. K2 requires these to be disabled.".to_string()
+                    },
+                };
+            }
+        }
+        CheckResult {
+            pass: false,
+            detail: "Could not determine TLS 1.0/1.1 state".to_string(),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("TLS 1.0/1.1")
+    }
+}
+
+/// Passing means IPv4 is active on some adapter, which is what K2
+/// requires; the Network & TLS screen's "IPv6-only mode" row is the
+/// inverse of this same fact, so it isn't queried separately.
+#[tauri::command]
+pub fn check_ipv4() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$addr = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.PrefixOrigin -ne 'WellKnown' } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+if ($addr) { $addr }
+"#;
+        match run_powershell(script) {
+            Some(addr) => CheckResult {
+                pass: true,
+                detail: format!("IPv4 active on primary adapter ({addr})"),
+            },
+            None => CheckResult {
+                pass: false,
+                detail: "No active IPv4 address found. K2 requires IPv4.".to_string(),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("IPv4")
+    }
+}
+
+/// Reports whether a TCP port is free to bind, for IIS site HTTP/HTTPS
+/// port validation on the IIS & .NET screen.
+#[tauri::command]
+pub fn check_port(port: u16) -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            "if (Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue) {{ 'in-use' }} else {{ 'free' }}"
+        );
+        match run_powershell(&script).as_deref() {
+            Some("in-use") => CheckResult {
+                pass: false,
+                detail: format!("Port {port} is already in use by another process"),
+            },
+            _ => CheckResult {
+                pass: true,
+                detail: format!("Port {port} is available"),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = port;
+        unsupported("Port availability")
+    }
+}
+
+#[derive(Serialize)]
+pub struct CertificateInfo {
+    pub thumbprint: String,
+    pub subject: String,
+}
+
+/// Lists certificates from the LocalMachine\My store, for the SSL
+/// certificate picker on the IIS & .NET screen.
+#[tauri::command]
+pub fn list_certificates() -> Vec<CertificateInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"Get-ChildItem Cert:\LocalMachine\My | ForEach-Object { "$($_.Thumbprint)|$($_.Subject)" }"#;
+        match run_powershell(script) {
+            Some(out) => out
+                .lines()
+                .filter_map(|line| {
+                    let mut parts = line.splitn(2, '|');
+                    let thumbprint = parts.next()?.trim().to_string();
+                    let subject = parts.next()?.trim().to_string();
+                    Some(CertificateInfo { thumbprint, subject })
+                })
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
+/// Returns this machine's FQDN, used to prefill the K2 server hostname
+/// field on the Network & TLS screen.
+#[tauri::command]
+pub fn get_machine_fqdn() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        run_powershell("[System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName()).HostName")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Checks whether this machine is joined to an Active Directory domain.
 #[tauri::command]
 pub fn check_domain_joined() -> CheckResult {

@@ -18,13 +18,23 @@ import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
 import type {
+  ActionResult,
+  CertificateInfo,
+  CheckResult,
+  IisChecks,
   LoadState,
+  NetworkChecks,
   PrerequisiteItem,
   ProductInfo,
-  SqlConnectionTestResult,
   SystemCheckItem,
 } from "./services/installer.service";
-import { getInstalledK2Version, getProductInfo, testSqlConnection } from "./services/installer.service";
+import {
+  checkPort,
+  getInstalledK2Version,
+  getProductInfo,
+  testSqlConnection,
+  validateActiveDirectory,
+} from "./services/installer.service";
 import "./App.css";
 
 export type WizardStep =
@@ -95,7 +105,17 @@ function App() {
   const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
 
   const [sqlTesting, setSqlTesting] = useState(false);
-  const [sqlTestResult, setSqlTestResult] = useState<SqlConnectionTestResult | null>(null);
+  const [sqlTestResult, setSqlTestResult] = useState<ActionResult | null>(null);
+
+  const [iisChecks, setIisChecks] = useState<IisChecks | null>(null);
+  const [iisTesting, setIisTesting] = useState(false);
+  const [portTestResult, setPortTestResult] = useState<ActionResult | null>(null);
+
+  const [adDomain, setAdDomain] = useState<CheckResult | null>(null);
+  const [adTesting, setAdTesting] = useState(false);
+  const [adValidationResult, setAdValidationResult] = useState<ActionResult | null>(null);
+
+  const [networkChecks, setNetworkChecks] = useState<NetworkChecks | null>(null);
 
   // Fetched once here (rather than separately in Welcome/Maintenance) so
   // the one-time registry scan for the installed version only runs once.
@@ -142,6 +162,38 @@ function App() {
       setSqlTesting(false);
       setSqlTestResult(result);
       if (!result.success) return;
+    }
+
+    if (step === "iis-net") {
+      setIisTesting(true);
+      setPortTestResult(null);
+      const httpPort = Number(iisConfig.httpPort);
+      const httpsPort = Number(iisConfig.httpsPort);
+      const [httpResult, httpsResult] = await Promise.all([checkPort(httpPort), checkPort(httpsPort)]);
+      setIisTesting(false);
+      const conflict = !httpResult.pass ? httpResult : !httpsResult.pass ? httpsResult : null;
+      if (conflict) {
+        setPortTestResult({ success: false, message: conflict.detail });
+        return;
+      }
+      setPortTestResult({ success: true, message: "Ports are available." });
+    }
+
+    if (step === "active-directory") {
+      // Informational only, doesn't block Next: PrincipalContext needs a
+      // classic AD domain context, which an Entra/Azure AD-joined-only
+      // machine (no on-prem AD) won't have even though it's a perfectly
+      // valid K2 environment, so a lookup failure here isn't necessarily
+      // a real problem with the entered values.
+      setAdTesting(true);
+      setAdValidationResult(null);
+      const result = await validateActiveDirectory({
+        serviceAccount: adConfig.serviceAccount,
+        adminsGroup: adConfig.adminsGroup,
+        createGroupIfMissing: adConfig.createGroupIfMissing,
+      });
+      setAdTesting(false);
+      setAdValidationResult(result);
     }
 
     goTo(ORDER[index + 1]);
@@ -206,18 +258,50 @@ function App() {
       nextDisabled = sqlTesting;
       break;
     case "iis-net":
-      body = <IisNetStep config={iisConfig} onChange={setIisConfig} />;
+      body = (
+        <IisNetStep
+          config={iisConfig}
+          onChange={(next) => {
+            setIisConfig(next);
+            setPortTestResult(null);
+          }}
+          onLoaded={setIisChecks}
+          portTestResult={portTestResult}
+        />
+      );
+      nextLabel = iisTesting ? "Checking ports..." : "Next";
+      nextDisabled = !iisChecks || iisTesting;
       break;
     case "active-directory":
-      body = <ActiveDirectoryStep config={adConfig} onChange={setAdConfig} />;
-      nextLabel = "Validate & Next";
+      body = (
+        <ActiveDirectoryStep
+          config={adConfig}
+          onChange={(next) => {
+            setAdConfig(next);
+            setAdValidationResult(null);
+          }}
+          onLoaded={setAdDomain}
+          validationResult={adValidationResult}
+        />
+      );
+      nextLabel = adTesting ? "Validating..." : "Validate & Next";
+      nextDisabled = !adDomain || adTesting;
       break;
     case "network-tls":
-      body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} />;
+      body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} onLoaded={setNetworkChecks} />;
+      nextDisabled = !networkChecks;
       break;
     case "review":
       body = (
-        <ReviewStep sqlConfig={sqlConfig} iisConfig={iisConfig} adConfig={adConfig} networkConfig={networkConfig} />
+        <ReviewStep
+          sqlConfig={sqlConfig}
+          iisConfig={iisConfig}
+          adConfig={adConfig}
+          networkConfig={networkConfig}
+          domain={adDomain}
+          networkChecks={networkChecks}
+          certificates={iisChecks?.certificates ?? ([] as CertificateInfo[])}
+        />
       );
       nextLabel = "Install K2";
       break;

@@ -13,6 +13,7 @@ pub fn run() {
             commands::get_installed_k2_version,
             commands::run_dotnet,
             commands::test_sql_connection,
+            commands::check_ad_objects,
             system_checks::check_os,
             system_checks::check_cpu,
             system_checks::check_ram,
@@ -22,6 +23,12 @@ pub fn run() {
             system_checks::check_iis,
             system_checks::check_vc_redist,
             system_checks::check_domain_joined,
+            system_checks::check_tls12,
+            system_checks::check_tls_legacy,
+            system_checks::check_ipv4,
+            system_checks::check_port,
+            system_checks::list_certificates,
+            system_checks::get_machine_fqdn,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

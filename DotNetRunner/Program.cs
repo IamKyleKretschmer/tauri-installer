@@ -16,6 +16,8 @@ namespace DotNetRunner
             {
                 case "test-sql":
                     return SqlServerCheck.TestConnectionAndDatabase(args);
+                case "ad-check":
+                    return ActiveDirectoryCheck.CheckObjects(args);
                 default:
                     Console.WriteLine($"Processed by .NET Framework {Environment.Version}: {args[0]}");
                     return 0;

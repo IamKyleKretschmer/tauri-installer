@@ -247,3 +247,36 @@ pub fn test_sql_connection(
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+/// Looks up the K2 service account and administrators group in Active
+/// Directory (read-only, via DotNetRunner's ad-check command). This
+/// deliberately never creates the group even when "Create this group in
+/// AD if it does not exist" is checked, creating objects in a real
+/// customer AD is a separate, explicit action this spike doesn't take
+/// silently on a wizard step's Next click.
+#[tauri::command]
+pub fn check_ad_objects(
+    service_account: String,
+    admins_group: String,
+    create_group_if_missing: bool,
+) -> Result<String, String> {
+    if service_account.trim().is_empty() {
+        return Err("K2 service account cannot be empty.".to_string());
+    }
+    if admins_group.trim().is_empty() {
+        return Err("K2 administrators group cannot be empty.".to_string());
+    }
+
+    let runner = dotnet_runner_path();
+    let create_flag = if create_group_if_missing { "true" } else { "false" };
+    let output = Command::new(runner)
+        .args(["ad-check", &service_account, &admins_group, create_flag])
+        .output()
+        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}

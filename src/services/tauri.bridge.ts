@@ -19,6 +19,11 @@ export interface CheckResult {
   detail: string;
 }
 
+export interface CertificateInfo {
+  thumbprint: string;
+  subject: string;
+}
+
 /**
  * Thin wrapper around Tauri's invoke(). The only module allowed to call
  * invoke() directly. Everything else goes through installer.service.ts.
@@ -60,5 +65,17 @@ export const tauriBridge = {
       username: params.username,
       password: params.password,
       database: params.database,
+    }),
+  checkTls12: () => invoke<CheckResult>("check_tls12"),
+  checkTlsLegacy: () => invoke<CheckResult>("check_tls_legacy"),
+  checkIpv4: () => invoke<CheckResult>("check_ipv4"),
+  checkPort: (port: number) => invoke<CheckResult>("check_port", { port }),
+  listCertificates: () => invoke<CertificateInfo[]>("list_certificates"),
+  getMachineFqdn: () => invoke<string | null>("get_machine_fqdn"),
+  checkAdObjects: (params: { serviceAccount: string; adminsGroup: string; createGroupIfMissing: boolean }) =>
+    invoke<string>("check_ad_objects", {
+      serviceAccount: params.serviceAccount,
+      adminsGroup: params.adminsGroup,
+      createGroupIfMissing: params.createGroupIfMissing,
     }),
 };
