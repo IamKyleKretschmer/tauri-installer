@@ -1,5 +1,6 @@
 using System;
-using System.Data.SqlClient;
+using System.Collections.Generic;
+using Microsoft.Data.SqlClient;
 
 namespace DotNetRunner
 {
@@ -31,38 +32,61 @@ namespace DotNetRunner
             string password = args[4];
             string database = string.IsNullOrWhiteSpace(args[5]) ? "K2" : args[5];
 
-            string masterConnectionString = BuildConnectionString(server, "master", authMode, username, password);
+            SqlException lastError = null;
 
-            try
+            // "Windows authentication" can mean classic on-prem Kerberos
+            // (IntegratedSecurity) or, on an Entra-joined machine, Azure AD
+            // integrated auth, which classic IntegratedSecurity can't do.
+            // Try both so this works either way without a separate UI
+            // option for it.
+            foreach (string connectionString in BuildCandidateConnectionStrings(server, authMode, username, password))
             {
-                using (var connection = new SqlConnection(masterConnectionString))
+                try
                 {
-                    connection.Open();
-
-                    if (DatabaseExists(connection, database))
+                    using (var connection = new SqlConnection(connectionString))
                     {
-                        Console.WriteLine($"Connected to {server}. Database '{database}' already exists.");
+                        connection.Open();
+
+                        if (DatabaseExists(connection, database))
+                        {
+                            Console.WriteLine($"Connected to {server}. Database '{database}' already exists.");
+                            return 0;
+                        }
+
+                        CreateDatabase(connection, database);
+                        Console.WriteLine($"Connected to {server}. Database '{database}' created with collation {RequiredCollation}.");
                         return 0;
                     }
-
-                    CreateDatabase(connection, database);
-                    Console.WriteLine($"Connected to {server}. Database '{database}' created with collation {RequiredCollation}.");
-                    return 0;
+                }
+                catch (SqlException ex)
+                {
+                    lastError = ex;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Unexpected error testing '{server}': {ex.Message}");
+                    return 1;
                 }
             }
-            catch (SqlException ex)
+
+            Console.Error.WriteLine($"Could not connect to '{server}': {lastError?.Message}");
+            return 1;
+        }
+
+        private static IEnumerable<string> BuildCandidateConnectionStrings(string server, string authMode, string username, string password)
+        {
+            if (string.Equals(authMode, "windows", StringComparison.OrdinalIgnoreCase))
             {
-                Console.Error.WriteLine($"Could not connect to '{server}': {ex.Message}");
-                return 1;
+                yield return BuildConnectionString(server, "master", SqlAuthenticationMethod.NotSpecified, null, null);
+                yield return BuildConnectionString(server, "master", SqlAuthenticationMethod.ActiveDirectoryIntegrated, null, null);
             }
-            catch (Exception ex)
+            else
             {
-                Console.Error.WriteLine($"Unexpected error testing '{server}': {ex.Message}");
-                return 1;
+                yield return BuildConnectionString(server, "master", SqlAuthenticationMethod.SqlPassword, username, password);
             }
         }
 
-        private static string BuildConnectionString(string server, string database, string authMode, string username, string password)
+        private static string BuildConnectionString(string server, string database, SqlAuthenticationMethod authMethod, string username, string password)
         {
             var builder = new SqlConnectionStringBuilder
             {
@@ -71,14 +95,18 @@ namespace DotNetRunner
                 ConnectTimeout = ConnectTimeoutSeconds,
             };
 
-            if (string.Equals(authMode, "windows", StringComparison.OrdinalIgnoreCase))
+            switch (authMethod)
             {
-                builder.IntegratedSecurity = true;
-            }
-            else
-            {
-                builder.UserID = username;
-                builder.Password = password;
+                case SqlAuthenticationMethod.NotSpecified:
+                    builder.IntegratedSecurity = true;
+                    break;
+                case SqlAuthenticationMethod.ActiveDirectoryIntegrated:
+                    builder.Authentication = SqlAuthenticationMethod.ActiveDirectoryIntegrated;
+                    break;
+                case SqlAuthenticationMethod.SqlPassword:
+                    builder.UserID = username;
+                    builder.Password = password;
+                    break;
             }
 
             return builder.ConnectionString;
