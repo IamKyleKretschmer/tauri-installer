@@ -170,6 +170,39 @@ pub fn run_dotnet(input: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Characters SQLSvrPanel.HasInvalidChars() rejected in a database name.
+const INVALID_DB_NAME_CHARS: [char; 14] =
+    ['"', ';', '\\', '/', ':', '*', '?', '<', '>', '|', '&', '\'', '=', ','];
+
+/// Same field validation SQLSvrPanel.ValidateDialog() ran before ever
+/// attempting a connection: required/length/reserved-name/character
+/// checks on the database name, and required username+password for SQL
+/// authentication.
+fn validate_sql_fields(auth_mode: &str, username: &str, password: &str, database: &str) -> Result<(), String> {
+    let trimmed = database.trim();
+
+    if trimmed.is_empty() {
+        return Err("Database name cannot be empty.".to_string());
+    }
+    if trimmed.len() > 128 {
+        return Err("Database name cannot be longer than 128 characters.".to_string());
+    }
+    if trimmed.eq_ignore_ascii_case("master") {
+        return Err("\"master\" is a reserved database name. Choose a different database name.".to_string());
+    }
+    if trimmed.chars().any(|c| INVALID_DB_NAME_CHARS.contains(&c)) {
+        return Err(format!(
+            "Database name contains invalid characters. Avoid: {}",
+            INVALID_DB_NAME_CHARS.iter().collect::<String>()
+        ));
+    }
+    if auth_mode.eq_ignore_ascii_case("sql") && (username.trim().is_empty() || password.is_empty()) {
+        return Err("A username and password are required for SQL Server authentication.".to_string());
+    }
+
+    Ok(())
+}
+
 /// Tests connectivity to a SQL Server instance and ensures the given
 /// database exists (DotNetRunner creates it with the required collation
 /// if missing), via `SourceCode.SetupManager`'s reference architecture:
@@ -182,6 +215,8 @@ pub fn test_sql_connection(
     password: String,
     database: String,
 ) -> Result<String, String> {
+    validate_sql_fields(&auth_mode, &username, &password, &database)?;
+
     let runner = dotnet_runner_path();
     let output = Command::new(runner)
         .args(["test-sql", &instance, &auth_mode, &username, &password, &database])
