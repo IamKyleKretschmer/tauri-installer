@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ComponentCategory, K2Component } from "../data/k2Components";
 import { COMPONENT_CATEGORIES, K2_COMPONENTS, childrenOf, executionOrder } from "../data/k2Components";
 
@@ -45,12 +45,8 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
   const [statuses, setStatuses] = useState<Record<string, ComponentStatus>>({});
   const [currentTarget, setCurrentTarget] = useState("");
   const [percent, setPercent] = useState(0);
-  const started = useRef(false);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-
     let cancelled = false;
     async function run() {
       const order = executionOrder();
