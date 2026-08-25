@@ -70,16 +70,34 @@ const UNINSTALL_KEYS: [&str; 2] = [
 /// how the legacy SourceCode.SetupManager installer read
 /// ComponentManager.ProductConfig.InstalledVersion to decide whether to
 /// show its Maintenance screen instead of a fresh install wizard.
+///
+/// A real machine's Uninstall key commonly has 50-200+ subkeys (one per
+/// installed program). Querying each one individually (as this used to)
+/// meant that many `reg.exe` process spawns just to check DisplayName,
+/// which is what made the Welcome screen feel slow. `reg query <root> /s
+/// /v DisplayName` does the same recursive scan in a single process, and
+/// only the one matching key gets a second query for DisplayVersion.
 #[cfg(target_os = "windows")]
 fn find_installed_k2_version() -> Option<String> {
     for root in UNINSTALL_KEYS {
-        let subkeys = Command::new("reg").args(["query", root]).output().ok()?;
-        let listing = String::from_utf8_lossy(&subkeys.stdout);
+        let output = Command::new("reg")
+            .args(["query", root, "/s", "/v", "DisplayName"])
+            .output()
+            .ok()?;
+        let listing = String::from_utf8_lossy(&output.stdout);
 
-        for subkey in listing.lines().map(str::trim).filter(|l| l.starts_with("HKEY")) {
-            let display_name = reg_read_value(subkey, "DisplayName");
-            if display_name.as_deref().is_some_and(|n| n.starts_with("K2")) {
-                return Some(reg_read_value(subkey, "DisplayVersion").unwrap_or_default());
+        let mut current_key: Option<&str> = None;
+        for line in listing.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("HKEY") {
+                current_key = Some(trimmed);
+            } else if trimmed.starts_with("DisplayName") {
+                let name = trimmed.rsplit("    ").next().unwrap_or("").trim();
+                if name.starts_with("K2") {
+                    if let Some(key) = current_key {
+                        return Some(reg_read_value(key, "DisplayVersion").unwrap_or_default());
+                    }
+                }
             }
         }
     }

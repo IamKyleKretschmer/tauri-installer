@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { Button } from "../components/primitives";
-import { getInstalledK2Version } from "../services/installer.service";
 import "./MaintenanceStep.css";
 
 export type MaintenanceAction = "configure" | "modify" | "remove" | "update";
@@ -16,19 +14,13 @@ export function MaintenanceStep({
   selected,
   onSelect,
   onContinue,
+  installedVersion,
 }: {
   selected: MaintenanceAction;
   onSelect: (action: MaintenanceAction) => void;
   onContinue: () => void;
+  installedVersion: string | null;
 }) {
-  const [installedVersion, setInstalledVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    getInstalledK2Version()
-      .then(setInstalledVersion)
-      .catch(() => setInstalledVersion(null));
-  }, []);
-
   return (
     <div className="maintenance-gate">
       <div className="maintenance-card">

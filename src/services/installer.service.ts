@@ -3,6 +3,8 @@ import type { ProductInfo } from "./tauri.bridge";
 
 export type { ProductInfo };
 
+export type LoadState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
+
 export async function getProductInfo(): Promise<ProductInfo> {
   return tauriBridge.getProductInfo();
 }

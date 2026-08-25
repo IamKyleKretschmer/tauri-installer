@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-import type { ProductInfo } from "../services/installer.service";
-import { getInstalledK2Version, getProductInfo } from "../services/installer.service";
+import type { LoadState, ProductInfo } from "../services/installer.service";
 
 const WILL_DO = [
   "Check your hardware and OS compatibility",
@@ -11,22 +9,13 @@ const WILL_DO = [
   "Install K2 Server components",
 ];
 
-type LoadState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
-
-export function WelcomeStep() {
-  const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
-  const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
-
-  useEffect(() => {
-    getProductInfo()
-      .then((value) => setProduct({ status: "ready", value }))
-      .catch(() => setProduct({ status: "error" }));
-
-    getInstalledK2Version()
-      .then((value) => setInstalledVersion({ status: "ready", value }))
-      .catch(() => setInstalledVersion({ status: "error" }));
-  }, []);
-
+export function WelcomeStep({
+  product,
+  installedVersion,
+}: {
+  product: LoadState<ProductInfo>;
+  installedVersion: LoadState<string | null>;
+}) {
   const installedLabel =
     installedVersion.status === "loading"
       ? "Checking..."

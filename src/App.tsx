@@ -17,8 +17,14 @@ import { NetworkTlsStep } from "./steps/NetworkTlsStep";
 import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
-import type { PrerequisiteItem, SqlConnectionTestResult, SystemCheckItem } from "./services/installer.service";
-import { detectK2Installed, testSqlConnection } from "./services/installer.service";
+import type {
+  LoadState,
+  PrerequisiteItem,
+  ProductInfo,
+  SqlConnectionTestResult,
+  SystemCheckItem,
+} from "./services/installer.service";
+import { getInstalledK2Version, getProductInfo, testSqlConnection } from "./services/installer.service";
 import "./App.css";
 
 export type WizardStep =
@@ -85,16 +91,28 @@ function App() {
   const [adConfig, setAdConfig] = useState<ActiveDirectoryConfig>(DEFAULT_AD_CONFIG);
   const [networkConfig, setNetworkConfig] = useState<NetworkTlsConfig>(DEFAULT_NETWORK_CONFIG);
 
-  const [k2Installed, setK2Installed] = useState<boolean | null>(null);
   const [maintenanceAction, setMaintenanceAction] = useState<MaintenanceAction>("configure");
   const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
 
   const [sqlTesting, setSqlTesting] = useState(false);
   const [sqlTestResult, setSqlTestResult] = useState<SqlConnectionTestResult | null>(null);
 
+  // Fetched once here (rather than separately in Welcome/Maintenance) so
+  // the one-time registry scan for the installed version only runs once.
+  const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
+  const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
+
   useEffect(() => {
-    detectK2Installed().then(setK2Installed);
+    getProductInfo()
+      .then((value) => setProduct({ status: "ready", value }))
+      .catch(() => setProduct({ status: "error" }));
+
+    getInstalledK2Version()
+      .then((value) => setInstalledVersion({ status: "ready", value }))
+      .catch(() => setInstalledVersion({ status: "error" }));
   }, []);
+
+  const k2Installed = installedVersion.status === "ready" && installedVersion.value !== null;
 
   const index = ORDER.indexOf(step);
 
@@ -139,7 +157,10 @@ function App() {
 
   switch (step) {
     case "welcome":
-      body = <WelcomeStep />;
+      body = <WelcomeStep product={product} installedVersion={installedVersion} />;
+      // Keep Next disabled until both the target version/install type and
+      // the currently-installed check have resolved (success or failure).
+      nextDisabled = product.status === "loading" || installedVersion.status === "loading";
       break;
     case "system-check":
       body = (
@@ -214,6 +235,7 @@ function App() {
           selected={maintenanceAction}
           onSelect={setMaintenanceAction}
           onContinue={() => setMaintenanceChosen(maintenanceAction)}
+          installedVersion={installedVersion.status === "ready" ? installedVersion.value : null}
         />
       </div>
     );
