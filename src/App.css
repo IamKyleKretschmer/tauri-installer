@@ -192,6 +192,68 @@
   font-size: 0.82rem;
 }
 
+.component-tree {
+  border: 1px solid var(--tx-border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  background: #fff;
+}
+
+.component-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.component-row--category {
+  font-weight: 700;
+  margin-top: 0.6rem;
+  margin-left: 0;
+}
+.component-row--category:first-child {
+  margin-top: 0;
+}
+
+.component-row__icon {
+  width: 1.1rem;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+
+.component-row--pending .component-row__icon {
+  color: var(--tx-muted);
+}
+.component-row--active .component-row__icon {
+  color: var(--tx-blue);
+  animation: component-pulse 1s ease-in-out infinite;
+}
+.component-row--done .component-row__icon {
+  color: var(--tx-green);
+}
+.component-row--done .component-row__name {
+  color: var(--tx-muted);
+}
+
+@keyframes component-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.component-progress__current {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--tx-muted);
+}
+
 .install-console {
   background: #eef0f5;
   border-radius: 8px;
