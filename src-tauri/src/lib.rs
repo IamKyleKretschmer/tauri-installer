@@ -1,4 +1,5 @@
 mod commands;
+mod system_actions;
 mod system_checks;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,6 +30,9 @@ pub fn run() {
             system_checks::check_port,
             system_checks::list_certificates,
             system_checks::get_machine_fqdn,
+            system_actions::configure_iis_site,
+            system_actions::disable_legacy_tls,
+            system_actions::grant_service_logon_right,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

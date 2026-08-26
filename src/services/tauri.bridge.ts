@@ -78,4 +78,20 @@ export const tauriBridge = {
       adminsGroup: params.adminsGroup,
       createGroupIfMissing: params.createGroupIfMissing,
     }),
+  configureIisSite: (params: {
+    siteName: string;
+    httpPort: string;
+    httpsPort: string;
+    appPoolIdentity: string;
+    certificateThumbprint: string;
+  }) =>
+    invoke<string>("configure_iis_site", {
+      siteName: params.siteName,
+      httpPort: params.httpPort,
+      httpsPort: params.httpsPort,
+      appPoolIdentity: params.appPoolIdentity,
+      certificateThumbprint: params.certificateThumbprint,
+    }),
+  disableLegacyTls: () => invoke<string>("disable_legacy_tls"),
+  grantServiceLogonRight: (account: string) => invoke<string>("grant_service_logon_right", { account }),
 };

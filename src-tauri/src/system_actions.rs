@@ -1,0 +1,153 @@
+use std::process::Command;
+
+#[cfg(target_os = "windows")]
+fn run_powershell(script: &str) -> Result<String, String> {
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
+        .output()
+        .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() { stdout } else { stderr });
+    }
+    Ok(stdout)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unsupported(action: &str) -> Result<String, String> {
+    Err(format!("{action} requires Windows"))
+}
+
+/// Creates (or replaces) a dedicated app pool and website for K2 in IIS.
+/// Real, but scoped to just this one site/app pool name, removing and
+/// recreating it is how you undo it.
+#[tauri::command]
+pub fn configure_iis_site(
+    site_name: String,
+    http_port: String,
+    https_port: String,
+    app_pool_identity: String,
+    certificate_thumbprint: String,
+) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let identity_value = match app_pool_identity.as_str() {
+            "NetworkService" => "NetworkService",
+            "ApplicationPoolIdentity" => "ApplicationPoolIdentity",
+            // No credential fields exist yet for a genuine custom account,
+            // so fall back to the safe default rather than guessing one.
+            _ => "ApplicationPoolIdentity",
+        };
+
+        let script = format!(
+            r#"
+Import-Module WebAdministration -ErrorAction Stop
+$site = '{site_name}'
+$httpPort = {http_port}
+$httpsPort = {https_port}
+$identity = '{identity_value}'
+$thumbprint = '{certificate_thumbprint}'
+
+if (Get-Website -Name $site -ErrorAction SilentlyContinue) {{ Remove-Website -Name $site }}
+if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
+
+New-WebAppPool -Name $site | Out-Null
+Set-ItemProperty "IIS:\AppPools\$site" -Name processModel.identityType -Value $identity
+
+New-Website -Name $site -Port $httpPort -PhysicalPath "$env:SystemDrive\inetpub\wwwroot" -ApplicationPool $site -Force | Out-Null
+
+if ($httpsPort -gt 0) {{
+    New-WebBinding -Name $site -Protocol https -Port $httpsPort -ErrorAction SilentlyContinue | Out-Null
+    if ($thumbprint) {{
+        $binding = Get-WebBinding -Name $site -Protocol https
+        $binding.AddSslCertificate($thumbprint, "my")
+    }}
+}}
+
+"Site '$site' created on ports $httpPort/$httpsPort with app pool identity $identity"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (site_name, http_port, https_port, app_pool_identity, certificate_thumbprint);
+        unsupported("Configuring the IIS site")
+    }
+}
+
+/// Disables TLS 1.0 and 1.1 for both Client and Server roles via the
+/// Schannel registry keys. Machine-wide: affects every app/service on
+/// this box, not just K2, and typically needs a reboot to fully take
+/// effect for other already-running services.
+#[tauri::command]
+pub fn disable_legacy_tls() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$protocols = 'TLS 1.0', 'TLS 1.1'
+$roles = 'Client', 'Server'
+foreach ($protocol in $protocols) {
+    foreach ($role in $roles) {
+        $key = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\$protocol\$role"
+        New-Item -Path $key -Force | Out-Null
+        New-ItemProperty -Path $key -Name 'Enabled' -Value 0 -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $key -Name 'DisabledByDefault' -Value 1 -PropertyType DWord -Force | Out-Null
+    }
+}
+"TLS 1.0 and 1.1 disabled for Client and Server (registry updated, a reboot may be required for other services to pick this up)"
+"#;
+        run_powershell(script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Disabling TLS 1.0/1.1")
+    }
+}
+
+/// Grants the given account the "Log on as a service" local security
+/// policy right (SeServiceLogonRight), via the standard secedit
+/// export/edit/import approach (there is no direct PowerShell cmdlet for
+/// user rights assignment). Scoped to just this one right for this one
+/// account; removing the account from that policy undoes it.
+#[tauri::command]
+pub fn grant_service_logon_right(account: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            r#"
+$account = '{account}'
+$sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+$cfgPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).cfg"
+$dbPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).sdb"
+
+secedit /export /cfg $cfgPath /areas USER_RIGHTS | Out-Null
+$content = Get-Content $cfgPath
+
+$existingLine = $content | Select-String '^SeServiceLogonRight'
+if ($existingLine) {{
+    if ($existingLine.Line -notmatch [regex]::Escape($sid)) {{
+        $newLine = $existingLine.Line + ",*$sid"
+        $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+    }}
+}} else {{
+    $content += "SeServiceLogonRight = *$sid"
+}}
+$content | Set-Content $cfgPath
+
+secedit /configure /db $dbPath /cfg $cfgPath /areas USER_RIGHTS | Out-Null
+Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
+
+"Granted 'Log on as a service' to $account"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = account;
+        unsupported("Granting the service logon right")
+    }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SqlServerConfig } from "./SqlServerStep";
-import { testSqlConnection } from "../services/installer.service";
+import type { IisNetConfig } from "./IisNetStep";
+import { configureIisSite, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
 
 interface InstallTask {
   id: string;
@@ -19,78 +20,108 @@ const TASKS: InstallTask[] = [
 
 type TaskState = "waiting" | "active" | "complete" | "failed";
 
-export function InstallStep({ onDone, sqlConfig }: { onDone: () => void; sqlConfig: SqlServerConfig }) {
+export function InstallStep({
+  onDone,
+  sqlConfig,
+  iisConfig,
+  adServiceAccount,
+}: {
+  onDone: () => void;
+  sqlConfig: SqlServerConfig;
+  iisConfig: IisNetConfig;
+  adServiceAccount: string;
+}) {
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [failedTaskId, setFailedTaskId] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
 
-  // onDone is an inline arrow function in App.tsx, so it gets a new
-  // identity on every App re-render, including the one this loop's own
-  // completion triggers. Reading it through a ref (instead of listing it
-  // as an effect dependency) keeps the effect from restarting the whole
-  // install loop every time that identity changes.
+  // These props only need to be read once, when the matching task
+  // actually runs. Reading them through refs (instead of listing them as
+  // effect dependencies) keeps the effect from restarting the whole
+  // install loop every time a prop's identity changes, including onDone,
+  // which is an inline arrow function in App.tsx and gets a new identity
+  // on every App re-render, including the one this loop's own completion
+  // triggers.
   const onDoneRef = useRef(onDone);
+  const sqlConfigRef = useRef(sqlConfig);
+  const iisConfigRef = useRef(iisConfig);
+  const adServiceAccountRef = useRef(adServiceAccount);
   useEffect(() => {
     onDoneRef.current = onDone;
-  }, [onDone]);
-
-  // sqlConfig only needs to be read once, when the "db" task actually
-  // runs; reading it through a ref keeps it out of the effect's
-  // dependency array so editing it elsewhere can't restart this loop.
-  const sqlConfigRef = useRef(sqlConfig);
-  useEffect(() => {
     sqlConfigRef.current = sqlConfig;
-  }, [sqlConfig]);
+    iisConfigRef.current = iisConfig;
+    adServiceAccountRef.current = adServiceAccount;
+  }, [onDone, sqlConfig, iisConfig, adServiceAccount]);
 
   useEffect(() => {
     let cancelled = false;
 
+    function appendLog(message: string) {
+      setLog((prev) => [...prev, `[${timestamp()}] ${message}`]);
+    }
+
     async function runFakeTask(task: InstallTask) {
       for (let pct = 0; pct <= 100; pct += 20) {
-        if (cancelled) return;
+        if (cancelled) return true;
         setProgress((prev) => ({ ...prev, [task.id]: pct }));
         await new Promise((r) => setTimeout(r, 150));
       }
-      setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - complete`]);
+      appendLog(`${task.label} - complete`);
+      return true;
     }
 
-    /**
-     * Runs the real SQL Server connection + database creation
-     * (test_sql_connection -> DotNetRunner's SqlServerCheck), using
-     * whatever was entered on the SQL Server step. Unlike the other
-     * (still simulated) tasks, this one can genuinely fail, e.g. if SQL
-     * Server became unreachable between that step and now, and if it
-     * does, the whole install stops here instead of continuing to fake
-     * success on top of a real failure.
-     */
-    async function runDatabaseTask(task: InstallTask) {
+    /** Runs a real backend action for this task; stops the whole install on failure. */
+    async function runRealTask(task: InstallTask, action: () => Promise<{ success: boolean; message: string }>) {
       setProgress((prev) => ({ ...prev, [task.id]: 40 }));
-      const config = sqlConfigRef.current;
-      const result = await testSqlConnection({
-        instance: config.instance,
-        authMode: config.authMode,
-        username: config.username,
-        password: config.password,
-        database: config.databaseName,
-      });
-      if (cancelled) return false;
+      const result = await action();
+      if (cancelled) return true;
 
       if (!result.success) {
-        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - FAILED: ${result.message}`]);
+        appendLog(`${task.label} - FAILED: ${result.message}`);
         setFailedTaskId(task.id);
         return false;
       }
 
       setProgress((prev) => ({ ...prev, [task.id]: 100 }));
-      setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - ${result.message}`]);
+      appendLog(`${task.label} - ${result.message}`);
       return true;
     }
+
+    // Only these four have a real backend action to run; "Installing K2
+    // Server components" and "Starting K2 services" stay simulated,
+    // there's no real K2 install payload or Windows service yet for
+    // those to act on.
+    const realTasks: Record<string, () => Promise<{ success: boolean; message: string }>> = {
+      db: () => {
+        const config = sqlConfigRef.current;
+        return testSqlConnection({
+          instance: config.instance,
+          authMode: config.authMode,
+          username: config.username,
+          password: config.password,
+          database: config.databaseName,
+        });
+      },
+      iis: () => {
+        const config = iisConfigRef.current;
+        return configureIisSite({
+          siteName: config.siteName,
+          httpPort: config.httpPort,
+          httpsPort: config.httpsPort,
+          appPoolIdentity: config.appPoolIdentity,
+          certificateThumbprint: config.sslCertificate,
+        });
+      },
+      tls: () => disableLegacyTls(),
+      ad: () => grantServiceLogonRight(adServiceAccountRef.current),
+    };
 
     async function run() {
       for (const task of TASKS) {
         if (cancelled) return;
 
-        const ok = task.id === "db" ? await runDatabaseTask(task) : (await runFakeTask(task), true);
+        const realAction = realTasks[task.id];
+        const ok = realAction ? await runRealTask(task, realAction) : await runFakeTask(task);
         if (!ok) return;
       }
       if (!cancelled) onDoneRef.current();

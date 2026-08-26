@@ -323,7 +323,12 @@ function App() {
     }
     case "install":
       body = (
-        <InstallStep sqlConfig={sqlConfig} onDone={() => setCompleted((prev) => new Set(prev).add("install"))} />
+        <InstallStep
+          sqlConfig={sqlConfig}
+          iisConfig={iisConfig}
+          adServiceAccount={adConfig.serviceAccount}
+          onDone={() => setCompleted((prev) => new Set(prev).add("install"))}
+        />
       );
       nextDisabled = !completed.has("install");
       nextLabel = "Finish";

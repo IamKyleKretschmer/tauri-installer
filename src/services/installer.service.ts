@@ -253,6 +253,44 @@ export async function validateActiveDirectory(params: AdValidationParams): Promi
   }
 }
 
+export interface IisSiteParams {
+  siteName: string;
+  httpPort: string;
+  httpsPort: string;
+  appPoolIdentity: string;
+  certificateThumbprint: string;
+}
+
+/** Creates the K2 IIS site and app pool for real (scoped to just that site/app pool name). */
+export async function configureIisSite(params: IisSiteParams): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.configureIisSite(params);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Disables TLS 1.0/1.1 machine-wide via the Schannel registry keys. */
+export async function disableLegacyTls(): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.disableLegacyTls();
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Grants the account "Log on as a service" via local security policy (secedit). */
+export async function grantServiceLogonRight(account: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.grantServiceLogonRight(account);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Network & TLS screen: real TLS/IPv4 status and this machine's FQDN. */
 export interface NetworkChecks {
   tls12: CheckResult;
