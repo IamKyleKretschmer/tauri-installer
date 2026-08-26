@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { SqlServerConfig } from "./SqlServerStep";
 import type { IisNetConfig } from "./IisNetStep";
+import type { FinishedSummary } from "./FinishedStep";
+import type { PrerequisiteItem, ProductInfo } from "../services/installer.service";
 import { configureIisSite, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
 
 interface InstallTask {
@@ -25,11 +27,19 @@ export function InstallStep({
   sqlConfig,
   iisConfig,
   adServiceAccount,
+  product,
+  prerequisiteItems,
+  hostname,
+  stepCount,
 }: {
-  onDone: () => void;
+  onDone: (summary: FinishedSummary) => void;
   sqlConfig: SqlServerConfig;
   iisConfig: IisNetConfig;
   adServiceAccount: string;
+  product: ProductInfo | null;
+  prerequisiteItems: PrerequisiteItem[] | null;
+  hostname: string;
+  stepCount: number;
 }) {
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [failedTaskId, setFailedTaskId] = useState<string | null>(null);
@@ -46,18 +56,33 @@ export function InstallStep({
   const sqlConfigRef = useRef(sqlConfig);
   const iisConfigRef = useRef(iisConfig);
   const adServiceAccountRef = useRef(adServiceAccount);
+  const productRef = useRef(product);
+  const prerequisiteItemsRef = useRef(prerequisiteItems);
+  const hostnameRef = useRef(hostname);
   useEffect(() => {
     onDoneRef.current = onDone;
     sqlConfigRef.current = sqlConfig;
     iisConfigRef.current = iisConfig;
     adServiceAccountRef.current = adServiceAccount;
-  }, [onDone, sqlConfig, iisConfig, adServiceAccount]);
+    productRef.current = product;
+    prerequisiteItemsRef.current = prerequisiteItems;
+    hostnameRef.current = hostname;
+  }, [onDone, sqlConfig, iisConfig, adServiceAccount, product, prerequisiteItems, hostname]);
 
   useEffect(() => {
     let cancelled = false;
+    const startedAt = Date.now();
+    let dbResultMessage: string | null = null;
+    // Accumulated locally (not just via setLog) so the final onDone call
+    // can hand App the complete log; React state read through this
+    // closure would otherwise be stale (captured once, at effect
+    // creation, since this effect only runs once).
+    const logLines: string[] = [];
 
     function appendLog(message: string) {
-      setLog((prev) => [...prev, `[${timestamp()}] ${message}`]);
+      const line = `[${timestamp()}] ${message}`;
+      logLines.push(line);
+      setLog((prev) => [...prev, line]);
     }
 
     async function runFakeTask(task: InstallTask) {
@@ -82,6 +107,7 @@ export function InstallStep({
         return false;
       }
 
+      if (task.id === "db") dbResultMessage = result.message;
       setProgress((prev) => ({ ...prev, [task.id]: 100 }));
       appendLog(`${task.label} - ${result.message}`);
       return true;
@@ -124,7 +150,20 @@ export function InstallStep({
         const ok = realAction ? await runRealTask(task, realAction) : await runFakeTask(task);
         if (!ok) return;
       }
-      if (!cancelled) onDoneRef.current();
+      if (cancelled) return;
+
+      onDoneRef.current({
+        product: productRef.current,
+        prerequisiteItems: prerequisiteItemsRef.current,
+        sqlConfig: sqlConfigRef.current,
+        sqlResultMessage: dbResultMessage,
+        iisConfig: iisConfigRef.current,
+        adServiceAccount: adServiceAccountRef.current,
+        hostname: hostnameRef.current,
+        log: logLines,
+        elapsedMs: Date.now() - startedAt,
+        stepCount,
+      });
     }
     void run();
     return () => {

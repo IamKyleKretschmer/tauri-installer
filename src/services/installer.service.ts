@@ -387,6 +387,28 @@ export function getReviewChecklist(params: ReviewChecklistParams): ReviewCheckli
   ];
 }
 
+/** Saves the install log to the user's Desktop for real; returns its path. */
+export async function saveInstallLog(contents: string): Promise<ActionResult> {
+  try {
+    const path = await tauriBridge.writeInstallLog(contents);
+    return { success: true, message: path };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  await tauriBridge.openUrl(url);
+}
+
+export async function openLocalPath(path: string): Promise<void> {
+  await tauriBridge.openPath(path);
+}
+
+export async function closeAppWindow(): Promise<void> {
+  await tauriBridge.closeWindow();
+}
+
 export async function greetFromRust(name: string): Promise<string> {
   return tauriBridge.hello(name);
 }

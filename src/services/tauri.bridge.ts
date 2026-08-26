@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 export interface ProductInfo {
   name: string;
@@ -94,4 +96,8 @@ export const tauriBridge = {
     }),
   disableLegacyTls: () => invoke<string>("disable_legacy_tls"),
   grantServiceLogonRight: (account: string) => invoke<string>("grant_service_logon_right", { account }),
+  writeInstallLog: (contents: string) => invoke<string>("write_install_log", { contents }),
+  openUrl: (url: string) => openUrl(url),
+  openPath: (path: string) => openPath(path),
+  closeWindow: () => getCurrentWindow().close(),
 };

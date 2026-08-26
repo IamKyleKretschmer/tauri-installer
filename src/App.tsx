@@ -17,6 +17,8 @@ import { NetworkTlsStep } from "./steps/NetworkTlsStep";
 import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
+import { FinishedStep, formatElapsed } from "./steps/FinishedStep";
+import type { FinishedSummary } from "./steps/FinishedStep";
 import type {
   ActionResult,
   CertificateInfo,
@@ -33,6 +35,8 @@ import {
   getInstalledK2Version,
   getProductInfo,
   getReviewChecklist,
+  closeAppWindow,
+  openExternalUrl,
   testSqlConnection,
   validateActiveDirectory,
 } from "./services/installer.service";
@@ -117,6 +121,8 @@ function App() {
   const [adValidationResult, setAdValidationResult] = useState<ActionResult | null>(null);
 
   const [networkChecks, setNetworkChecks] = useState<NetworkChecks | null>(null);
+
+  const [installSummary, setInstallSummary] = useState<FinishedSummary | null>(null);
 
   // Fetched once here (rather than separately in Welcome/Maintenance) so
   // the one-time registry scan for the installed version only runs once.
@@ -322,18 +328,48 @@ function App() {
       break;
     }
     case "install":
-      body = (
-        <InstallStep
-          sqlConfig={sqlConfig}
-          iisConfig={iisConfig}
-          adServiceAccount={adConfig.serviceAccount}
-          onDone={() => setCompleted((prev) => new Set(prev).add("install"))}
-        />
-      );
+      if (installSummary) {
+        body = <FinishedStep summary={installSummary} />;
+      } else {
+        body = (
+          <InstallStep
+            sqlConfig={sqlConfig}
+            iisConfig={iisConfig}
+            adServiceAccount={adConfig.serviceAccount}
+            product={product.status === "ready" ? product.value : null}
+            prerequisiteItems={prerequisiteItems}
+            hostname={networkConfig.hostname}
+            stepCount={STEPS.length}
+            onDone={(summary) => {
+              setCompleted((prev) => new Set(prev).add("install"));
+              setInstallSummary(summary);
+            }}
+          />
+        );
+      }
       nextDisabled = !completed.has("install");
       nextLabel = "Finish";
       break;
   }
+
+  const finishedFooter = step === "install" && installSummary ? (
+    <>
+      <span className="wizard-shell__step">
+        Setup complete - {installSummary.stepCount} steps in {formatElapsed(installSummary.elapsedMs)}
+      </span>
+      <div className="wizard-shell__actions">
+        <Button variant="secondary" onClick={() => void closeAppWindow()}>
+          Close
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => void openExternalUrl(`https://${installSummary.hostname}/Management`)}
+        >
+          Open K2 Management
+        </Button>
+      </div>
+    </>
+  ) : undefined;
 
   if (k2Installed && maintenanceChosen === null) {
     return (
@@ -384,6 +420,7 @@ function App() {
         backDisabled={index === 0}
         nextDisabled={nextDisabled}
         nextLabel={nextLabel}
+        footer={finishedFooter}
       >
         {body}
       </WizardShell>

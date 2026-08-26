@@ -1,5 +1,56 @@
 use std::process::Command;
 
+/// Writes the install log to the current user's Desktop and returns the
+/// full path. Content is passed over stdin rather than embedded in the
+/// PowerShell script string, so arbitrary log text (quotes, newlines)
+/// can't break out of the script.
+#[tauri::command]
+pub fn write_install_log(contents: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let script = r#"
+$content = [Console]::In.ReadToEnd()
+$desktop = [Environment]::GetFolderPath('Desktop')
+$path = Join-Path $desktop ("K2-Setup-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd-HHmm'))
+Set-Content -LiteralPath $path -Value $content -Encoding UTF8
+$path
+"#;
+        let mut child = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
+
+        child
+            .stdin
+            .take()
+            .ok_or("Failed to open PowerShell stdin")?
+            .write_all(contents.as_bytes())
+            .map_err(|e| format!("Failed to write log content: {e}"))?;
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("Failed to wait for PowerShell: {e}"))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() { stdout } else { stderr });
+        }
+        Ok(stdout)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = contents;
+        Err("Writing the install log requires Windows".to_string())
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> Result<String, String> {
     let output = Command::new("powershell")

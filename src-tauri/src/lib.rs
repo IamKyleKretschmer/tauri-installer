@@ -33,6 +33,7 @@ pub fn run() {
             system_actions::configure_iis_site,
             system_actions::disable_legacy_tls,
             system_actions::grant_service_logon_right,
+            system_actions::write_install_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
