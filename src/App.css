@@ -336,6 +336,9 @@ body,
 .prereq-progress-row__status--complete {
   color: var(--tx-green);
 }
+.prereq-progress-row__status--failed {
+  color: #c0392b;
+}
 .prereq-progress-row__sublabel {
   margin: 0.3rem 0 0;
   font-size: 0.78rem;

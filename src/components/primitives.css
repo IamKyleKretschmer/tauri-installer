@@ -165,3 +165,6 @@
 .tx-progress__fill--done {
   background: var(--tx-green);
 }
+.tx-progress__fill--failed {
+  background: #c0392b;
+}

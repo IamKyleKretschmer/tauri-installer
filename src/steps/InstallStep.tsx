@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { SqlServerConfig } from "./SqlServerStep";
+import { testSqlConnection } from "../services/installer.service";
 
 interface InstallTask {
   id: string;
@@ -15,10 +17,11 @@ const TASKS: InstallTask[] = [
   { id: "start", label: "Starting K2 services", subLabel: "Waiting for services to report healthy" },
 ];
 
-type TaskState = "waiting" | "active" | "complete";
+type TaskState = "waiting" | "active" | "complete" | "failed";
 
-export function InstallStep({ onDone }: { onDone: () => void }) {
+export function InstallStep({ onDone, sqlConfig }: { onDone: () => void; sqlConfig: SqlServerConfig }) {
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const [failedTaskId, setFailedTaskId] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
 
   // onDone is an inline arrow function in App.tsx, so it gets a new
@@ -31,17 +34,64 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
     onDoneRef.current = onDone;
   }, [onDone]);
 
+  // sqlConfig only needs to be read once, when the "db" task actually
+  // runs; reading it through a ref keeps it out of the effect's
+  // dependency array so editing it elsewhere can't restart this loop.
+  const sqlConfigRef = useRef(sqlConfig);
+  useEffect(() => {
+    sqlConfigRef.current = sqlConfig;
+  }, [sqlConfig]);
+
   useEffect(() => {
     let cancelled = false;
+
+    async function runFakeTask(task: InstallTask) {
+      for (let pct = 0; pct <= 100; pct += 20) {
+        if (cancelled) return;
+        setProgress((prev) => ({ ...prev, [task.id]: pct }));
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - complete`]);
+    }
+
+    /**
+     * Runs the real SQL Server connection + database creation
+     * (test_sql_connection -> DotNetRunner's SqlServerCheck), using
+     * whatever was entered on the SQL Server step. Unlike the other
+     * (still simulated) tasks, this one can genuinely fail, e.g. if SQL
+     * Server became unreachable between that step and now, and if it
+     * does, the whole install stops here instead of continuing to fake
+     * success on top of a real failure.
+     */
+    async function runDatabaseTask(task: InstallTask) {
+      setProgress((prev) => ({ ...prev, [task.id]: 40 }));
+      const config = sqlConfigRef.current;
+      const result = await testSqlConnection({
+        instance: config.instance,
+        authMode: config.authMode,
+        username: config.username,
+        password: config.password,
+        database: config.databaseName,
+      });
+      if (cancelled) return false;
+
+      if (!result.success) {
+        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - FAILED: ${result.message}`]);
+        setFailedTaskId(task.id);
+        return false;
+      }
+
+      setProgress((prev) => ({ ...prev, [task.id]: 100 }));
+      setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - ${result.message}`]);
+      return true;
+    }
+
     async function run() {
       for (const task of TASKS) {
         if (cancelled) return;
-        for (let pct = 0; pct <= 100; pct += 20) {
-          if (cancelled) return;
-          setProgress((prev) => ({ ...prev, [task.id]: pct }));
-          await new Promise((r) => setTimeout(r, 150));
-        }
-        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - complete`]);
+
+        const ok = task.id === "db" ? await runDatabaseTask(task) : (await runFakeTask(task), true);
+        if (!ok) return;
       }
       if (!cancelled) onDoneRef.current();
     }
@@ -53,7 +103,11 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
   }, []);
 
   function stateFor(taskIndex: number): TaskState {
-    const pct = progress[TASKS[taskIndex].id] ?? 0;
+    const task = TASKS[taskIndex];
+    if (failedTaskId === task.id) return "failed";
+    if (failedTaskId && TASKS.findIndex((t) => t.id === failedTaskId) < taskIndex) return "waiting";
+
+    const pct = progress[task.id] ?? 0;
     if (pct >= 100) return "complete";
     if (taskIndex === 0 || (progress[TASKS[taskIndex - 1].id] ?? 0) >= 100) {
       return pct > 0 || taskIndex === TASKS.findIndex((t) => (progress[t.id] ?? 0) < 100) ? "active" : "waiting";
@@ -77,12 +131,18 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
               <div className="prereq-progress-row__header">
                 <span>{task.label}</span>
                 <span className={`prereq-progress-row__status prereq-progress-row__status--${state}`}>
-                  {state === "complete" ? "Complete" : state === "active" ? `Installing… ${pct}%` : "Waiting…"}
+                  {state === "complete"
+                    ? "Complete"
+                    : state === "failed"
+                      ? "Failed"
+                      : state === "active"
+                        ? `Installing… ${pct}%`
+                        : "Waiting…"}
                 </span>
               </div>
               <div className="tx-progress">
                 <div
-                  className={`tx-progress__fill tx-progress__fill--${state === "complete" ? "done" : "active"}`}
+                  className={`tx-progress__fill tx-progress__fill--${state === "complete" ? "done" : state === "failed" ? "failed" : "active"}`}
                   style={{ width: `${state === "waiting" ? 0 : pct}%` }}
                 />
               </div>
@@ -98,9 +158,13 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
         ))}
       </pre>
 
-      <p className="step-intro">
-        Installing {completedCount} of {TASKS.length}…
-      </p>
+      {failedTaskId ? (
+        <p className="step-intro">Installation stopped. Click Back to fix the issue above and try again.</p>
+      ) : (
+        <p className="step-intro">
+          Installing {completedCount} of {TASKS.length}…
+        </p>
+      )}
     </div>
   );
 }
