@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComponentCategory, K2Component } from "../data/k2Components";
 import { COMPONENT_CATEGORIES, K2_COMPONENTS, childrenOf, executionOrder } from "../data/k2Components";
 
@@ -46,6 +46,18 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
   const [currentTarget, setCurrentTarget] = useState("");
   const [percent, setPercent] = useState(0);
 
+  // onDone is an inline arrow function in App.tsx, so it gets a new
+  // identity on every App re-render, including the one this loop's own
+  // completion triggers. Reading it through a ref (instead of listing it
+  // as an effect dependency) keeps the effect from restarting the whole
+  // install loop every time that identity changes, which otherwise loops
+  // forever: finish -> onDone() -> App re-renders -> new onDone -> effect
+  // restarts -> finish -> ...
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -68,13 +80,14 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
         setStatuses((prev) => ({ ...prev, [component.id]: "done" }));
       }
 
-      if (!cancelled) onDone();
+      if (!cancelled) onDoneRef.current();
     }
     void run();
     return () => {
       cancelled = true;
     };
-  }, [onDone]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
