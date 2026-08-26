@@ -25,8 +25,10 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri`, and `.vs`/`DotNetRunner`
+      // build output, which Visual Studio and its indexer lock files under
+      // (a locked .vsidx crashes Vite's watcher with EBUSY otherwise)
+      ignored: ["**/src-tauri/**", "**/.vs/**", "**/DotNetRunner/bin/**", "**/DotNetRunner/obj/**"],
     },
   },
 }));
