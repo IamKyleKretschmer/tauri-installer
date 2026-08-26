@@ -93,6 +93,15 @@ namespace DotNetRunner
                 DataSource = server,
                 InitialCatalog = database,
                 ConnectTimeout = ConnectTimeoutSeconds,
+                // Microsoft.Data.SqlClient defaults Encrypt=true and validates
+                // the server's certificate against a trusted CA, unlike the
+                // legacy System.Data.SqlClient. Internal/test SQL Servers
+                // almost always use a self-signed cert, which fails that
+                // validation ("certificate chain was issued by an authority
+                // that is not trusted"). TrustServerCertificate keeps the
+                // connection encrypted but skips CA validation, the standard
+                // approach for exactly this case.
+                TrustServerCertificate = true,
             };
 
             switch (authMethod)
