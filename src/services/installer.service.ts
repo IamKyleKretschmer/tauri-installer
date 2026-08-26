@@ -275,6 +275,80 @@ export async function getMachineFqdn(): Promise<string | null> {
   return tauriBridge.getMachineFqdn().catch(() => null);
 }
 
+export interface ReviewChecklistItem {
+  id: string;
+  label: string;
+  pass: boolean;
+  detail: string;
+}
+
+export interface ReviewChecklistParams {
+  sqlTestResult: ActionResult | null;
+  siteName: string;
+  portTestResult: ActionResult | null;
+  serviceAccount: string;
+  adminsGroup: string;
+  hostname: string;
+}
+
+/**
+ * Everything the wizard collected that installation actually depends on,
+ * as a pass/fail checklist. Install stays disabled until every item here
+ * passes, since a wrong or missing value (an untested SQL connection, a
+ * blank service account, a port conflict) would otherwise only surface as
+ * a failure partway through the real install.
+ */
+export function getReviewChecklist(params: ReviewChecklistParams): ReviewChecklistItem[] {
+  return [
+    {
+      id: "sql",
+      label: "SQL Server connection verified",
+      pass: params.sqlTestResult?.success === true,
+      detail: params.sqlTestResult
+        ? params.sqlTestResult.message
+        : "Not tested yet. Go back to SQL Server and click Test connection & Next.",
+    },
+    {
+      id: "iis-site-name",
+      label: "IIS site name provided",
+      pass: params.siteName.trim().length > 0,
+      detail: params.siteName.trim().length > 0 ? `Site name: ${params.siteName.trim()}` : "IIS site name cannot be empty.",
+    },
+    {
+      id: "iis-ports",
+      label: "IIS HTTP/HTTPS ports available",
+      pass: params.portTestResult?.success === true,
+      detail: params.portTestResult
+        ? params.portTestResult.message
+        : "Not checked yet. Go back to IIS & .NET and click Next.",
+    },
+    {
+      id: "ad-service-account",
+      label: "K2 service account provided",
+      pass: params.serviceAccount.trim().length > 0,
+      detail:
+        params.serviceAccount.trim().length > 0
+          ? `Service account: ${params.serviceAccount.trim()}`
+          : "K2 service account cannot be empty.",
+    },
+    {
+      id: "ad-admins-group",
+      label: "K2 administrators group provided",
+      pass: params.adminsGroup.trim().length > 0,
+      detail:
+        params.adminsGroup.trim().length > 0
+          ? `Admins group: ${params.adminsGroup.trim()}`
+          : "K2 administrators group cannot be empty.",
+    },
+    {
+      id: "network-hostname",
+      label: "K2 server hostname provided",
+      pass: params.hostname.trim().length > 0,
+      detail: params.hostname.trim().length > 0 ? `Hostname: ${params.hostname.trim()}` : "Hostname cannot be empty.",
+    },
+  ];
+}
+
 export async function greetFromRust(name: string): Promise<string> {
   return tauriBridge.hello(name);
 }

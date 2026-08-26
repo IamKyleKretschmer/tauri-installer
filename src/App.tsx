@@ -32,6 +32,7 @@ import {
   checkPort,
   getInstalledK2Version,
   getProductInfo,
+  getReviewChecklist,
   testSqlConnection,
   validateActiveDirectory,
 } from "./services/installer.service";
@@ -291,7 +292,7 @@ function App() {
       body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} onLoaded={setNetworkChecks} />;
       nextDisabled = !networkChecks;
       break;
-    case "review":
+    case "review": {
       body = (
         <ReviewStep
           sqlConfig={sqlConfig}
@@ -301,10 +302,25 @@ function App() {
           domain={adDomain}
           networkChecks={networkChecks}
           certificates={iisChecks?.certificates ?? ([] as CertificateInfo[])}
+          sqlTestResult={sqlTestResult}
+          portTestResult={portTestResult}
         />
       );
+      const checklist = getReviewChecklist({
+        sqlTestResult,
+        siteName: iisConfig.siteName,
+        portTestResult,
+        serviceAccount: adConfig.serviceAccount,
+        adminsGroup: adConfig.adminsGroup,
+        hostname: networkConfig.hostname,
+      });
+      // Only once every required item has a tick can the customer install,
+      // a wrong or missing value here could otherwise fail partway
+      // through the real install.
+      nextDisabled = !checklist.every((item) => item.pass);
       nextLabel = "Install K2";
       break;
+    }
     case "install":
       body = <InstallStep onDone={() => setCompleted((prev) => new Set(prev).add("install"))} />;
       nextDisabled = !completed.has("install");

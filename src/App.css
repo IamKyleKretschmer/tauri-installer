@@ -288,6 +288,48 @@ body,
   color: var(--tx-navy);
 }
 
+.checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.checklist-item__icon {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-top: 0.1rem;
+}
+.checklist-item__icon--pass {
+  background: #e3f6e8;
+  color: var(--tx-green);
+}
+.checklist-item__icon--fail {
+  background: #fbe4e1;
+  color: #c0392b;
+}
+
+.checklist-item__label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.checklist-item__detail {
+  font-size: 0.8rem;
+  color: var(--tx-muted);
+}
+
 .prereq-progress-row__status--waiting {
   color: var(--tx-muted);
 }
