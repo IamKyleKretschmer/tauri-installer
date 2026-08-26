@@ -1,58 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import type { ComponentCategory, K2Component } from "../data/k2Components";
-import { COMPONENT_CATEGORIES, K2_COMPONENTS, childrenOf, executionOrder } from "../data/k2Components";
 
-type ComponentStatus = "pending" | "active" | "done";
-
-function ComponentRow({ component, status, depth }: { component: K2Component; status: ComponentStatus; depth: number }) {
-  const icon = status === "done" ? "✓" : status === "active" ? "●" : "○";
-  return (
-    <div
-      className={`component-row component-row--${status}`}
-      style={{ marginLeft: `${depth * 1.25}rem` }}
-    >
-      <span className="component-row__icon">{icon}</span>
-      <span className="component-row__name">{component.displayName}</span>
-    </div>
-  );
+interface InstallTask {
+  id: string;
+  label: string;
+  subLabel: string;
 }
 
-function ComponentTree({ statuses }: { statuses: Record<string, ComponentStatus> }) {
-  function renderNode(component: K2Component, depth: number) {
-    return (
-      <div key={component.id}>
-        <ComponentRow component={component} status={statuses[component.id] ?? "pending"} depth={depth} />
-        {childrenOf(component.id).map((child) => renderNode(child, depth + 1))}
-      </div>
-    );
-  }
+const TASKS: InstallTask[] = [
+  { id: "db", label: "Creating K2 database", subLabel: "Applying collation and schema" },
+  { id: "iis", label: "Configuring IIS site & app pool", subLabel: "Binding ports 80/443" },
+  { id: "tls", label: "Disabling TLS 1.0 / 1.1", subLabel: "Updating Schannel registry keys" },
+  { id: "components", label: "Installing K2 Server components", subLabel: "Registering K2 Windows services" },
+  { id: "ad", label: "Configuring AD service account", subLabel: "Granting local service rights" },
+  { id: "start", label: "Starting K2 services", subLabel: "Waiting for services to report healthy" },
+];
 
-  return (
-    <div className="component-tree">
-      {COMPONENT_CATEGORIES.map((category: ComponentCategory) => (
-        <div key={category}>
-          <div className="component-row component-row--category">{category}</div>
-          {K2_COMPONENTS.filter((c) => c.category === category && !c.parentId).map((component) =>
-            renderNode(component, 1),
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
+type TaskState = "waiting" | "active" | "complete";
 
 export function InstallStep({ onDone }: { onDone: () => void }) {
-  const [statuses, setStatuses] = useState<Record<string, ComponentStatus>>({});
-  const [currentTarget, setCurrentTarget] = useState("");
-  const [percent, setPercent] = useState(0);
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [log, setLog] = useState<string[]>([]);
 
   // onDone is an inline arrow function in App.tsx, so it gets a new
   // identity on every App re-render, including the one this loop's own
   // completion triggers. Reading it through a ref (instead of listing it
   // as an effect dependency) keeps the effect from restarting the whole
-  // install loop every time that identity changes, which otherwise loops
-  // forever: finish -> onDone() -> App re-renders -> new onDone -> effect
-  // restarts -> finish -> ...
+  // install loop every time that identity changes.
   const onDoneRef = useRef(onDone);
   useEffect(() => {
     onDoneRef.current = onDone;
@@ -61,25 +34,15 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      const order = executionOrder();
-      const totalTargets = order.reduce((sum, c) => sum + c.targets.length, 0);
-      let completedTargets = 0;
-
-      for (const component of order) {
+      for (const task of TASKS) {
         if (cancelled) return;
-        setStatuses((prev) => ({ ...prev, [component.id]: "active" }));
-
-        for (const target of component.targets) {
+        for (let pct = 0; pct <= 100; pct += 20) {
           if (cancelled) return;
-          setCurrentTarget(target);
-          await new Promise((r) => setTimeout(r, 350));
-          completedTargets += 1;
-          setPercent(Math.round((completedTargets / totalTargets) * 100));
+          setProgress((prev) => ({ ...prev, [task.id]: pct }));
+          await new Promise((r) => setTimeout(r, 150));
         }
-
-        setStatuses((prev) => ({ ...prev, [component.id]: "done" }));
+        setLog((prev) => [...prev, `[${timestamp()}] ${task.label} - complete`]);
       }
-
       if (!cancelled) onDoneRef.current();
     }
     void run();
@@ -89,19 +52,59 @@ export function InstallStep({ onDone }: { onDone: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function stateFor(taskIndex: number): TaskState {
+    const pct = progress[TASKS[taskIndex].id] ?? 0;
+    if (pct >= 100) return "complete";
+    if (taskIndex === 0 || (progress[TASKS[taskIndex - 1].id] ?? 0) >= 100) {
+      return pct > 0 || taskIndex === TASKS.findIndex((t) => (progress[t.id] ?? 0) < 100) ? "active" : "waiting";
+    }
+    return "waiting";
+  }
+
+  const completedCount = TASKS.filter((t) => (progress[t.id] ?? 0) >= 100).length;
+
   return (
     <div>
-      <h1 className="step-title step-title--sm">Components</h1>
-      <p className="step-intro">Please wait while K2 installs the components below. Do not close this window.</p>
+      <h1 className="step-title step-title--sm">Installing K2</h1>
+      <p className="step-intro">This may take several minutes. Please do not close this window or restart the machine.</p>
 
-      <ComponentTree statuses={statuses} />
-
-      <div className="component-progress">
-        <div className="tx-progress">
-          <div className="tx-progress__fill tx-progress__fill--active" style={{ width: `${percent}%` }} />
-        </div>
-        <p className="component-progress__current">{currentTarget || "Preparing installation..."}</p>
+      <div className="prereq-list">
+        {TASKS.map((task, idx) => {
+          const pct = progress[task.id] ?? 0;
+          const state = stateFor(idx);
+          return (
+            <div className="prereq-progress-row" key={task.id}>
+              <div className="prereq-progress-row__header">
+                <span>{task.label}</span>
+                <span className={`prereq-progress-row__status prereq-progress-row__status--${state}`}>
+                  {state === "complete" ? "Complete" : state === "active" ? `Installing… ${pct}%` : "Waiting…"}
+                </span>
+              </div>
+              <div className="tx-progress">
+                <div
+                  className={`tx-progress__fill tx-progress__fill--${state === "complete" ? "done" : "active"}`}
+                  style={{ width: `${state === "waiting" ? 0 : pct}%` }}
+                />
+              </div>
+              {state === "active" && <p className="prereq-progress-row__sublabel">{task.subLabel}</p>}
+            </div>
+          );
+        })}
       </div>
+
+      <pre className="install-console">
+        {log.map((line) => (
+          <div key={line}>{line}</div>
+        ))}
+      </pre>
+
+      <p className="step-intro">
+        Installing {completedCount} of {TASKS.length}…
+      </p>
     </div>
   );
+}
+
+function timestamp() {
+  return new Date().toLocaleTimeString("en-US", { hour12: false });
 }
