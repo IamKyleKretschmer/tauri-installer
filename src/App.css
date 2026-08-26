@@ -360,6 +360,10 @@ body,
   align-items: center;
   justify-content: center;
 }
+.finished-step__badge--error {
+  border-color: #c0392b;
+  color: #c0392b;
+}
 .finished-step__title {
   font-size: 1.4rem;
   font-weight: 700;

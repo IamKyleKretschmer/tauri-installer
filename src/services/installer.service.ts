@@ -1,7 +1,9 @@
 import { tauriBridge } from "./tauri.bridge";
 import type { CertificateInfo, CheckResult, ProductInfo } from "./tauri.bridge";
+import { buildBlueprintXml, parseBlueprintXml } from "./blueprint";
+import type { Blueprint } from "./blueprint";
 
-export type { ProductInfo, CertificateInfo, CheckResult };
+export type { ProductInfo, CertificateInfo, CheckResult, Blueprint };
 
 export type LoadState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
 
@@ -407,6 +409,45 @@ export async function openLocalPath(path: string): Promise<void> {
 
 export async function closeAppWindow(): Promise<void> {
   await tauriBridge.closeWindow();
+}
+
+export interface LaunchArgs {
+  output: string | null;
+  install: string | null;
+}
+
+/**
+ * Mirrors the legacy installer's /output:bp.xml (write an answer file
+ * instead of installing) and /install:bp.xml (install from one, no
+ * wizard) command-line switches.
+ */
+export async function getLaunchArgs(): Promise<LaunchArgs> {
+  return tauriBridge.getLaunchArgs().catch(() => ({ output: null, install: null }));
+}
+
+export async function saveBlueprint(path: string, blueprint: Blueprint): Promise<ActionResult> {
+  try {
+    const savedPath = await tauriBridge.writeTextFile(path, buildBlueprintXml(blueprint));
+    return { success: true, message: savedPath };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export interface LoadedBlueprint {
+  success: boolean;
+  blueprint: Blueprint | null;
+  message: string;
+}
+
+export async function loadBlueprint(path: string): Promise<LoadedBlueprint> {
+  try {
+    const xml = await tauriBridge.readTextFile(path);
+    const blueprint = parseBlueprintXml(xml);
+    return { success: true, blueprint, message: path };
+  } catch (error) {
+    return { success: false, blueprint: null, message: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function greetFromRust(name: string): Promise<string> {

@@ -19,6 +19,7 @@ import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
 import { FinishedStep, formatElapsed } from "./steps/FinishedStep";
 import type { FinishedSummary } from "./steps/FinishedStep";
+import { BlueprintSavedStep } from "./steps/BlueprintSavedStep";
 import type {
   ActionResult,
   CertificateInfo,
@@ -32,10 +33,12 @@ import type {
 } from "./services/installer.service";
 import {
   checkPort,
+  closeAppWindow,
   getInstalledK2Version,
+  getLaunchArgs,
   getProductInfo,
   getReviewChecklist,
-  closeAppWindow,
+  loadBlueprint,
   openExternalUrl,
   testSqlConnection,
   validateActiveDirectory,
@@ -129,6 +132,14 @@ function App() {
   const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
   const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
 
+  // Mirrors the legacy installer's /output:bp.xml and /install:bp.xml
+  // command-line switches: write an answer file instead of installing,
+  // or install from one with no interactive wizard at all.
+  const [outputPath, setOutputPath] = useState<string | null>(null);
+  const [silentInstall, setSilentInstall] = useState<
+    { status: "checking" } | { status: "none" } | { status: "loading" } | { status: "error"; message: string } | { status: "ready" }
+  >({ status: "checking" });
+
   useEffect(() => {
     getProductInfo()
       .then((value) => setProduct({ status: "ready", value }))
@@ -137,6 +148,26 @@ function App() {
     getInstalledK2Version()
       .then((value) => setInstalledVersion({ status: "ready", value }))
       .catch(() => setInstalledVersion({ status: "error" }));
+
+    getLaunchArgs().then((args) => {
+      setOutputPath(args.output);
+      if (!args.install) {
+        setSilentInstall({ status: "none" });
+        return;
+      }
+      setSilentInstall({ status: "loading" });
+      loadBlueprint(args.install).then((result) => {
+        if (!result.success || !result.blueprint) {
+          setSilentInstall({ status: "error", message: result.message });
+          return;
+        }
+        setSqlConfig(result.blueprint.sqlConfig);
+        setIisConfig(result.blueprint.iisConfig);
+        setAdConfig(result.blueprint.adConfig);
+        setNetworkConfig(result.blueprint.networkConfig);
+        setSilentInstall({ status: "ready" });
+      });
+    });
   }, []);
 
   const k2Installed = installedVersion.status === "ready" && installedVersion.value !== null;
@@ -328,7 +359,10 @@ function App() {
       break;
     }
     case "install":
-      if (installSummary) {
+      if (outputPath) {
+        // /output mode: write the answer file instead of installing.
+        body = <BlueprintSavedStep path={outputPath} blueprint={{ sqlConfig, iisConfig, adConfig, networkConfig }} />;
+      } else if (installSummary) {
         body = <FinishedStep summary={installSummary} />;
       } else {
         body = (
@@ -352,24 +386,77 @@ function App() {
       break;
   }
 
-  const finishedFooter = step === "install" && installSummary ? (
-    <>
-      <span className="wizard-shell__step">
-        Setup complete - {installSummary.stepCount} steps in {formatElapsed(installSummary.elapsedMs)}
-      </span>
-      <div className="wizard-shell__actions">
-        <Button variant="secondary" onClick={() => void closeAppWindow()}>
+  const finishedFooter =
+    step === "install" && outputPath ? (
+      <div className="wizard-shell__actions" style={{ marginLeft: "auto" }}>
+        <Button variant="primary" onClick={() => void closeAppWindow()}>
           Close
         </Button>
-        <Button
-          variant="primary"
-          onClick={() => void openExternalUrl(`https://${installSummary.hostname}/Management`)}
-        >
-          Open K2 Management
-        </Button>
       </div>
-    </>
-  ) : undefined;
+    ) : step === "install" && installSummary ? (
+      <>
+        <span className="wizard-shell__step">
+          Setup complete - {installSummary.stepCount} steps in {formatElapsed(installSummary.elapsedMs)}
+        </span>
+        <div className="wizard-shell__actions">
+          <Button variant="secondary" onClick={() => void closeAppWindow()}>
+            Close
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void openExternalUrl(`https://${installSummary.hostname}/Management`)}
+          >
+            Open K2 Management
+          </Button>
+        </div>
+      </>
+    ) : undefined;
+
+  // /install:bp.xml mode: no wizard, no Maintenance gate, just run the
+  // install from the loaded answer file and show progress.
+  if (silentInstall.status === "loading" || silentInstall.status === "error" || silentInstall.status === "ready") {
+    return (
+      <div className="app-shell">
+        <div className="wizard-shell">
+          <div className="wizard-shell__content">
+            {silentInstall.status === "loading" ? (
+              <p className="step-intro">Loading blueprint...</p>
+            ) : silentInstall.status === "error" ? (
+              <div className="finished-step">
+                <div className="finished-step__badge finished-step__badge--error">✗</div>
+                <h1 className="finished-step__title">Could not start silent install</h1>
+                <p className="finished-step__subtitle">{silentInstall.message}</p>
+              </div>
+            ) : installSummary ? (
+              <FinishedStep summary={installSummary} />
+            ) : (
+              <InstallStep
+                sqlConfig={sqlConfig}
+                iisConfig={iisConfig}
+                adServiceAccount={adConfig.serviceAccount}
+                product={product.status === "ready" ? product.value : null}
+                prerequisiteItems={null}
+                hostname={networkConfig.hostname}
+                stepCount={STEPS.length}
+                onDone={setInstallSummary}
+              />
+            )}
+          </div>
+          <footer className="wizard-shell__footer">
+            {installSummary || silentInstall.status === "error" ? (
+              <div className="wizard-shell__actions" style={{ marginLeft: "auto" }}>
+                <Button variant="primary" onClick={() => void closeAppWindow()}>
+                  Close
+                </Button>
+              </div>
+            ) : (
+              <span className="wizard-shell__step">Silent install in progress...</span>
+            )}
+          </footer>
+        </div>
+      </div>
+    );
+  }
 
   if (k2Installed && maintenanceChosen === null) {
     return (

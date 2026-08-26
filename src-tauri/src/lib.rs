@@ -1,3 +1,4 @@
+mod blueprint;
 mod commands;
 mod system_actions;
 mod system_checks;
@@ -34,6 +35,9 @@ pub fn run() {
             system_actions::disable_legacy_tls,
             system_actions::grant_service_logon_right,
             system_actions::write_install_log,
+            blueprint::get_launch_args,
+            blueprint::write_text_file,
+            blueprint::read_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

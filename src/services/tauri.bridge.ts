@@ -100,4 +100,7 @@ export const tauriBridge = {
   openUrl: (url: string) => openUrl(url),
   openPath: (path: string) => openPath(path),
   closeWindow: () => getCurrentWindow().close(),
+  getLaunchArgs: () => invoke<{ output: string | null; install: string | null }>("get_launch_args"),
+  writeTextFile: (path: string, contents: string) => invoke<string>("write_text_file", { path, contents }),
+  readTextFile: (path: string) => invoke<string>("read_text_file", { path }),
 };
