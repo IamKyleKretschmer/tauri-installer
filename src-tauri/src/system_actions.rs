@@ -136,7 +136,7 @@ if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
 New-WebAppPool -Name $site | Out-Null
 Set-ItemProperty "IIS:\AppPools\$site" -Name processModel.identityType -Value $identity
 
-$sitePhysicalPath = "$env:SystemDrive\Program Files (x86)\K2\Web Bin"
+$sitePhysicalPath = "$env:ProgramFiles\K2\WebServices"
 New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
 New-Website -Name $site -Port $httpPort -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
 
@@ -146,7 +146,7 @@ foreach ($app in $webApps) {{
         New-WebAppPool -Name $appPoolName | Out-Null
         Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value $identity
     }}
-    $appPhysicalPath = Join-Path $sitePhysicalPath "Webservices\$app"
+    $appPhysicalPath = Join-Path $sitePhysicalPath $app
     New-Item -ItemType Directory -Force -Path $appPhysicalPath | Out-Null
     if (Get-WebApplication -Site $site -Name $app -ErrorAction SilentlyContinue) {{
         Remove-WebApplication -Site $site -Name $app
@@ -185,9 +185,12 @@ if ($httpsPort -gt 0) {{
 /// and one folder per K2 web app matching K2_WEB_APPS.
 ///
 /// Expects `source_root` to contain, if present:
-///   HostServer\...                  -> Program Files (x86)\K2\Host Server\Bin
-///   <AppName>\...  (per K2_WEB_APPS) -> Program Files (x86)\K2\Web Bin\Webservices\<AppName>
-/// If no source root is given, or none of those subfolders exist, this
+///   HostServer\...                  -> Program Files\K2\Host Server\Bin
+///   <AppName>\...  (per K2_WEB_APPS) -> Program Files\K2\WebServices\<AppName>
+/// (matching the real, flat C:\Program Files\K2\WebServices layout
+/// confirmed against an actual K2 install, not a nested "Web Bin"
+/// folder). If no source root is given, or none of those subfolders
+/// exist, this
 /// reports a clean skip rather than failing, since a bare spike install
 /// may not have the real product payload available yet.
 #[tauri::command]
@@ -221,15 +224,15 @@ function Copy-K2Folder($source, $target) {{
     return $count
 }}
 
-$webRoot = "$env:SystemDrive\Program Files (x86)\K2\Web Bin"
-$hostRoot = "$env:SystemDrive\Program Files (x86)\K2\Host Server\Bin"
+$webRoot = "$env:ProgramFiles\K2\WebServices"
+$hostRoot = "$env:ProgramFiles\K2\Host Server\Bin"
 $totalCopied = 0
 
 $totalCopied += Copy-K2Folder (Join-Path $sourceRoot "HostServer") $hostRoot
 
 $webApps = '{web_apps_list}' -split ','
 foreach ($app in $webApps) {{
-    $totalCopied += Copy-K2Folder (Join-Path $sourceRoot $app) (Join-Path $webRoot "Webservices\$app")
+    $totalCopied += Copy-K2Folder (Join-Path $sourceRoot $app) (Join-Path $webRoot $app)
 }}
 
 if ($totalCopied -eq 0) {{

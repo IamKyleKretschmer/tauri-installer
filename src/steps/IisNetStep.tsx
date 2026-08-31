@@ -94,7 +94,7 @@ export function IisNetStep({
 
       <TextInput
         label="K2 source files folder (optional)"
-        hint="A local folder or share laid out with a 'HostServer' subfolder and one subfolder per K2 web app (e.g. Management, Designer) containing the real files to deploy. Leave blank to skip file deployment; the IIS folders will still be created but left empty."
+        hint="A local folder or share laid out with a 'HostServer' subfolder and one subfolder per K2 web app (e.g. Management, Designer), matching the real C:\Program Files\K2\WebServices layout. Leave blank to skip file deployment; the IIS folders will still be created but left empty."
         value={local.sourceFilesPath}
         onChange={(e) => update({ sourceFilesPath: e.target.value })}
       />
