@@ -174,6 +174,40 @@ if ($httpsPort -gt 0) {{
     }
 }
 
+/// Mirrors the legacy SourceCode.Install.Common "copy file" install
+/// action (e.g. sourcecode.dll -> hostserver/bin): copies the contents
+/// of a source folder (real K2 server/web files supplied by the caller)
+/// into the K2 Host Server bin folder. If no source path is given, this
+/// is skipped entirely rather than failing, since a bare spike install
+/// may not have the real product payload available yet.
+#[tauri::command]
+pub fn copy_k2_files(source_path: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if source_path.trim().is_empty() {
+            return Ok("No K2 source files folder was provided, skipping file deployment".to_string());
+        }
+
+        let script = format!(
+            r#"
+$source = '{source_path}'
+if (-not (Test-Path -LiteralPath $source)) {{ throw "Source files folder not found: $source" }}
+$dest = "$env:SystemDrive\Program Files (x86)\K2\Host Server\Bin"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+robocopy $source $dest /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+$copied = (Get-ChildItem -LiteralPath $dest -Recurse -File | Measure-Object).Count
+"Copied $copied file(s) from $source to $dest"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = source_path;
+        unsupported("Copying K2 files")
+    }
+}
+
 /// Disables TLS 1.0 and 1.1 for both Client and Server roles via the
 /// Schannel registry keys. Machine-wide: affects every app/service on
 /// this box, not just K2, and typically needs a reboot to fully take

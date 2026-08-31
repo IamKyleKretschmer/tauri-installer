@@ -273,6 +273,21 @@ export async function configureIisSite(params: IisSiteParams): Promise<ActionRes
   }
 }
 
+/**
+ * Copies real K2 server/web files from a source folder into the K2 Host
+ * Server bin folder, mirroring the legacy "copy file" install action
+ * (sourcecode.dll -> hostserver/bin). Skips cleanly if no source path
+ * was provided.
+ */
+export async function copyK2Files(sourcePath: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.copyK2Files(sourcePath);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Disables TLS 1.0/1.1 machine-wide via the Schannel registry keys. */
 export async function disableLegacyTls(): Promise<ActionResult> {
   try {

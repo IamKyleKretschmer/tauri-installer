@@ -9,6 +9,7 @@ export interface IisNetConfig {
   httpsPort: string;
   appPoolIdentity: string;
   sslCertificate: string;
+  sourceFilesPath: string;
 }
 
 export function IisNetStep({
@@ -90,6 +91,13 @@ export function IisNetStep({
       {portTestResult && !portTestResult.success && (
         <div className="callout callout--warn">{portTestResult.message}</div>
       )}
+
+      <TextInput
+        label="K2 source files folder (optional)"
+        hint="A local folder or share containing the K2 server/web files to deploy (e.g. sourcecode.dll). Leave blank to skip file deployment; the IIS folders will still be created but left empty."
+        value={local.sourceFilesPath}
+        onChange={(e) => update({ sourceFilesPath: e.target.value })}
+      />
     </div>
   );
 }

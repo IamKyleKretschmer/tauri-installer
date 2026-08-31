@@ -85,6 +85,7 @@ const DEFAULT_IIS_CONFIG: IisNetConfig = {
   httpsPort: "443",
   appPoolIdentity: "NetworkService",
   sslCertificate: "",
+  sourceFilesPath: "",
 };
 
 const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {

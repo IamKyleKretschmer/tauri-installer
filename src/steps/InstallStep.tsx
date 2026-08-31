@@ -3,7 +3,7 @@ import type { SqlServerConfig } from "./SqlServerStep";
 import type { IisNetConfig } from "./IisNetStep";
 import type { FinishedSummary } from "./FinishedStep";
 import type { PrerequisiteItem, ProductInfo } from "../services/installer.service";
-import { configureIisSite, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
+import { configureIisSite, copyK2Files, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
 
 interface InstallTask {
   id: string;
@@ -113,10 +113,11 @@ export function InstallStep({
       return true;
     }
 
-    // Only these four have a real backend action to run; "Installing K2
-    // Server components" and "Starting K2 services" stay simulated,
-    // there's no real K2 install payload or Windows service yet for
-    // those to act on.
+    // "Starting K2 services" stays simulated, there's no real K2 Windows
+    // service installed yet to start. "components" is real when a K2
+    // source files folder was provided (copies the real payload into the
+    // Host Server bin folder); otherwise it reports a skip rather than
+    // failing.
     const realTasks: Record<string, () => Promise<{ success: boolean; message: string }>> = {
       db: () => {
         const config = sqlConfigRef.current;
@@ -139,6 +140,7 @@ export function InstallStep({
         });
       },
       tls: () => disableLegacyTls(),
+      components: () => copyK2Files(iisConfigRef.current.sourceFilesPath),
       ad: () => grantServiceLogonRight(adServiceAccountRef.current),
     };
 
