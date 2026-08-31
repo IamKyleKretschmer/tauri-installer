@@ -94,7 +94,7 @@ export const tauriBridge = {
       appPoolIdentity: params.appPoolIdentity,
       certificateThumbprint: params.certificateThumbprint,
     }),
-  copyK2Files: (sourcePath: string) => invoke<string>("copy_k2_files", { sourcePath }),
+  copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
   disableLegacyTls: () => invoke<string>("disable_legacy_tls"),
   grantServiceLogonRight: (account: string) => invoke<string>("grant_service_logon_right", { account }),
   writeInstallLog: (contents: string) => invoke<string>("write_install_log", { contents }),

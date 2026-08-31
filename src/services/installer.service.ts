@@ -274,14 +274,16 @@ export async function configureIisSite(params: IisSiteParams): Promise<ActionRes
 }
 
 /**
- * Copies real K2 server/web files from a source folder into the K2 Host
- * Server bin folder, mirroring the legacy "copy file" install action
- * (sourcecode.dll -> hostserver/bin). Skips cleanly if no source path
- * was provided.
+ * Copies real K2 server/web files from a source root into the right IIS
+ * folders, mirroring the legacy SourceCode.Install.Package.Actions.IO.CopyFiles
+ * action (recursive Source -> Target folder copy, one per component).
+ * Expects a "HostServer" subfolder and one subfolder per K2 web app
+ * under sourceRoot; skips cleanly if no source root was provided or none
+ * of those subfolders exist.
  */
-export async function copyK2Files(sourcePath: string): Promise<ActionResult> {
+export async function copyK2Files(sourceRoot: string): Promise<ActionResult> {
   try {
-    const message = await tauriBridge.copyK2Files(sourcePath);
+    const message = await tauriBridge.copyK2Files(sourceRoot);
     return { success: true, message };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };

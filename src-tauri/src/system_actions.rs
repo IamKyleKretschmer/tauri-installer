@@ -174,36 +174,76 @@ if ($httpsPort -gt 0) {{
     }
 }
 
-/// Mirrors the legacy SourceCode.Install.Common "copy file" install
-/// action (e.g. sourcecode.dll -> hostserver/bin): copies the contents
-/// of a source folder (real K2 server/web files supplied by the caller)
-/// into the K2 Host Server bin folder. If no source path is given, this
-/// is skipped entirely rather than failing, since a bare spike install
+/// Mirrors the real legacy SourceCode.Install.Package.Actions.IO.CopyFiles
+/// action: for a given Source/Target pair, create the target folder,
+/// recreate the source's subdirectory structure under it, then copy
+/// every file across (overwriting same-named files), skipping cleanly
+/// (not failing) when the source folder doesn't exist. The real
+/// installer runs one CopyFiles action per component target (host
+/// server, each web application, ...); this does the same, driven by
+/// the caller's source root being laid out with a "HostServer" folder
+/// and one folder per K2 web app matching K2_WEB_APPS.
+///
+/// Expects `source_root` to contain, if present:
+///   HostServer\...                  -> Program Files (x86)\K2\Host Server\Bin
+///   <AppName>\...  (per K2_WEB_APPS) -> Program Files (x86)\K2\Web Bin\Webservices\<AppName>
+/// If no source root is given, or none of those subfolders exist, this
+/// reports a clean skip rather than failing, since a bare spike install
 /// may not have the real product payload available yet.
 #[tauri::command]
-pub fn copy_k2_files(source_path: String) -> Result<String, String> {
+pub fn copy_k2_files(source_root: String) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        if source_path.trim().is_empty() {
+        if source_root.trim().is_empty() {
             return Ok("No K2 source files folder was provided, skipping file deployment".to_string());
         }
 
+        let web_apps_list = K2_WEB_APPS.join(",");
+
         let script = format!(
             r#"
-$source = '{source_path}'
-if (-not (Test-Path -LiteralPath $source)) {{ throw "Source files folder not found: $source" }}
-$dest = "$env:SystemDrive\Program Files (x86)\K2\Host Server\Bin"
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-robocopy $source $dest /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
-$copied = (Get-ChildItem -LiteralPath $dest -Recurse -File | Measure-Object).Count
-"Copied $copied file(s) from $source to $dest"
+$sourceRoot = '{source_root}'
+if (-not (Test-Path -LiteralPath $sourceRoot)) {{ throw "Source files folder not found: $sourceRoot" }}
+
+function Copy-K2Folder($source, $target) {{
+    if (-not (Test-Path -LiteralPath $source)) {{ return 0 }}
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    Get-ChildItem -LiteralPath $source -Recurse -Directory | ForEach-Object {{
+        $rel = $_.FullName.Substring($source.Length).TrimStart('\')
+        New-Item -ItemType Directory -Force -Path (Join-Path $target $rel) | Out-Null
+    }}
+    $count = 0
+    Get-ChildItem -LiteralPath $source -Recurse -File | ForEach-Object {{
+        $rel = $_.FullName.Substring($source.Length).TrimStart('\')
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $target $rel) -Force
+        $count++
+    }}
+    return $count
+}}
+
+$webRoot = "$env:SystemDrive\Program Files (x86)\K2\Web Bin"
+$hostRoot = "$env:SystemDrive\Program Files (x86)\K2\Host Server\Bin"
+$totalCopied = 0
+
+$totalCopied += Copy-K2Folder (Join-Path $sourceRoot "HostServer") $hostRoot
+
+$webApps = '{web_apps_list}' -split ','
+foreach ($app in $webApps) {{
+    $totalCopied += Copy-K2Folder (Join-Path $sourceRoot $app) (Join-Path $webRoot "Webservices\$app")
+}}
+
+if ($totalCopied -eq 0) {{
+    "No matching HostServer or web app folders found under $sourceRoot, nothing copied"
+}} else {{
+    "Copied $totalCopied file(s) from $sourceRoot"
+}}
 "#
         );
         run_powershell(&script)
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = source_path;
+        let _ = source_root;
         unsupported("Copying K2 files")
     }
 }
