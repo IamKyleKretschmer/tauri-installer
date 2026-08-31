@@ -71,9 +71,35 @@ fn unsupported(action: &str) -> Result<String, String> {
     Err(format!("{action} requires Windows"))
 }
 
-/// Creates (or replaces) a dedicated app pool and website for K2 in IIS.
-/// Real, but scoped to just this one site/app pool name, removing and
-/// recreating it is how you undo it.
+/// The K2 web components that live as virtual applications under the main
+/// K2 site, matching the layout shown in IIS Manager for a real K2 Five
+/// install (each one its own web application with its own physical
+/// folder under the K2 install's "Web Bin" directory, the same pattern as
+/// the legacy Webservices\<Name> vdirs in SourceCode.Install.Web /
+/// Configuration.config, just with the fuller K2 Five component list).
+const K2_WEB_APPS: &[&str] = &[
+    "Api",
+    "aspnet_client",
+    "AutoDiscover",
+    "Designer",
+    "Identity",
+    "K2Api",
+    "K2Services",
+    "Management",
+    "Report",
+    "Runtime",
+    "RuntimeServices",
+    "SP15EventService",
+    "ViewFlow",
+    "Workspace",
+];
+
+/// Creates (or replaces) the K2 site in IIS along with the full tree of
+/// web-component virtual applications underneath it (Management,
+/// Designer, Runtime, etc, mirroring what SourceCode.Install.Web's
+/// Website/Application/AppPool helpers build for a real K2 install).
+/// Real, but scoped to just this one site name and its own app pools;
+/// removing them is how you undo it.
 #[tauri::command]
 pub fn configure_iis_site(
     site_name: String,
@@ -92,6 +118,8 @@ pub fn configure_iis_site(
             _ => "ApplicationPoolIdentity",
         };
 
+        let web_apps_list = K2_WEB_APPS.join(",");
+
         let script = format!(
             r#"
 Import-Module WebAdministration -ErrorAction Stop
@@ -100,6 +128,7 @@ $httpPort = {http_port}
 $httpsPort = {https_port}
 $identity = '{identity_value}'
 $thumbprint = '{certificate_thumbprint}'
+$webApps = '{web_apps_list}' -split ','
 
 if (Get-Website -Name $site -ErrorAction SilentlyContinue) {{ Remove-Website -Name $site }}
 if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
@@ -107,7 +136,23 @@ if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
 New-WebAppPool -Name $site | Out-Null
 Set-ItemProperty "IIS:\AppPools\$site" -Name processModel.identityType -Value $identity
 
-New-Website -Name $site -Port $httpPort -PhysicalPath "$env:SystemDrive\inetpub\wwwroot" -ApplicationPool $site -Force | Out-Null
+$sitePhysicalPath = "$env:SystemDrive\Program Files (x86)\K2\Web Bin"
+New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
+New-Website -Name $site -Port $httpPort -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
+
+foreach ($app in $webApps) {{
+    $appPoolName = "$site $app"
+    if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {{
+        New-WebAppPool -Name $appPoolName | Out-Null
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value $identity
+    }}
+    $appPhysicalPath = Join-Path $sitePhysicalPath "Webservices\$app"
+    New-Item -ItemType Directory -Force -Path $appPhysicalPath | Out-Null
+    if (Get-WebApplication -Site $site -Name $app -ErrorAction SilentlyContinue) {{
+        Remove-WebApplication -Site $site -Name $app
+    }}
+    New-WebApplication -Site $site -Name $app -PhysicalPath $appPhysicalPath -ApplicationPool $appPoolName | Out-Null
+}}
 
 if ($httpsPort -gt 0) {{
     New-WebBinding -Name $site -Protocol https -Port $httpsPort -ErrorAction SilentlyContinue | Out-Null
@@ -117,7 +162,7 @@ if ($httpsPort -gt 0) {{
     }}
 }}
 
-"Site '$site' created on ports $httpPort/$httpsPort with app pool identity $identity"
+"Site '$site' created on ports $httpPort/$httpsPort with $($webApps.Count) K2 web applications and app pool identity $identity"
 "#
         );
         run_powershell(&script)
