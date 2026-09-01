@@ -20,6 +20,22 @@ namespace DotNetRunner
         // a schema-owner account to fully manage K2's own database.
         private const string SchemaOwnerRole = "db_owner";
 
+        // Ported from the real SourceCode.Install.SQL SqlHelper's
+        // _sqlFriendlyVerionLookup: build-number-to-friendly-name map.
+        // Matched here by major version only (not the exact 4-part build),
+        // since any patched/CU'd engine will have a different exact build
+        // number than the baseline one in the real table.
+        private static readonly Dictionary<int, string> SqlFriendlyVersionByMajor = new Dictionary<int, string>
+        {
+            { 10, "2008" },
+            { 11, "2012" },
+            { 12, "2014" },
+            { 13, "2016" },
+            { 14, "2017" },
+            { 15, "2019" },
+            { 16, "2022" },
+        };
+
         /// <summary>
         /// args: [0]=test-sql, [1]=server instance, [2]=auth mode (sql|windows),
         /// [3]=username, [4]=password, [5]=database name.
@@ -85,7 +101,8 @@ namespace DotNetRunner
                         string dbNote = alreadyExisted
                             ? $"Database '{database}' already exists."
                             : $"Database '{database}' created with collation {RequiredCollation}.";
-                        Console.WriteLine($"Connected to {server}. {dbNote}{userNote}");
+                        string versionNote = GetFriendlySqlVersionNote(connection);
+                        Console.WriteLine($"Connected to {server}{versionNote}. {dbNote}{userNote}");
                         return 0;
                     }
                 }
@@ -217,6 +234,37 @@ namespace DotNetRunner
             }
 
             return builder.ConnectionString;
+        }
+
+        /// <summary>
+        /// Reports the connected server's edition as "SQL Server 2019"
+        /// etc, using the same build-number-to-friendly-name mapping as
+        /// the real installer's SqlHelper.GetSupportedSqlServerFriendlyVersion,
+        /// informational only (no minimum-version enforcement, since the
+        /// real minimum-supported-version constant isn't something we
+        /// could recover).
+        /// </summary>
+        private static string GetFriendlySqlVersionNote(SqlConnection connection)
+        {
+            try
+            {
+                using (var command = new SqlCommand("SELECT SERVERPROPERTY('ProductVersion')", connection))
+                {
+                    object result = command.ExecuteScalar();
+                    if (result == null || result == DBNull.Value) return string.Empty;
+
+                    string productVersion = result.ToString();
+                    int majorVersion = int.Parse(productVersion.Split('.')[0]);
+
+                    return SqlFriendlyVersionByMajor.TryGetValue(majorVersion, out string friendlyName)
+                        ? $" (SQL Server {friendlyName})"
+                        : $" (SQL Server, product version {productVersion})";
+                }
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static bool DatabaseExists(SqlConnection connection, string database)
