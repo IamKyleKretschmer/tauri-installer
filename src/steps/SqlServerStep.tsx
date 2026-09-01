@@ -92,7 +92,7 @@ export function SqlServerStep({
 
       <TextInput
         label="K2 database name"
-        hint="A new database will be created with this name if it does not exist."
+        hint="K2 actually creates 14 fixed databases (K2HostServer, K2Server, K2Workspace, etc), not a single one, so this name isn't used to create anything, it's kept for connectivity testing and backward compatibility."
         value={local.databaseName}
         onChange={(e) => update({ databaseName: e.target.value })}
       />

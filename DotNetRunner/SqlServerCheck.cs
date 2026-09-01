@@ -36,6 +36,31 @@ namespace DotNetRunner
             { 16, "2022" },
         };
 
+        // The real, fixed set of databases a K2 Five install creates,
+        // taken from the plaintext documentation block K2HostServer.exe.config
+        // ships with ("USE THE SETTINGS BELOW TO REPLACE ENCRYPTED SECTION") -
+        // K2 splits its data across 14 separate databases, not one. These
+        // names aren't user-configurable in the real product, so they're
+        // created as-is regardless of whatever name is in the wizard's
+        // "K2 database name" field.
+        private static readonly string[] RealK2DatabaseNames =
+        {
+            "K2Categories",
+            "K2Dependencies",
+            "K2EnvironmentSettings",
+            "K2EventBus",
+            "K2EventBusScheduler",
+            "K2HostServer",
+            "K2Server",
+            "K2ServerLog",
+            "K2SmartBox",
+            "K2SmartBroker",
+            "K2SQLUM",
+            "K2WebDesigner",
+            "K2WebWorkflow",
+            "K2Workspace",
+        };
+
         /// <summary>
         /// args: [0]=test-sql, [1]=server instance, [2]=auth mode (sql|windows),
         /// [3]=username, [4]=password, [5]=database name.
@@ -52,7 +77,10 @@ namespace DotNetRunner
             string authMode = args[2];
             string username = args[3];
             string password = args[4];
-            string database = string.IsNullOrWhiteSpace(args[5]) ? "K2" : args[5];
+            // The wizard's "K2 database name" field is kept for backward
+            // compatibility and validation, but the real K2 database names
+            // (RealK2DatabaseNames) are fixed and not user-configurable, so
+            // this value isn't used to name anything created below.
 
             SqlException lastError = null;
 
@@ -69,38 +97,41 @@ namespace DotNetRunner
                     {
                         connection.Open();
 
-                        bool alreadyExisted = DatabaseExists(connection, database);
-                        if (!alreadyExisted)
+                        int createdCount = 0;
+                        foreach (string database in RealK2DatabaseNames)
                         {
-                            CreateDatabase(connection, database);
-                            ApplyRecommendedDatabaseSettings(connection, database);
-                        }
-
-                        // Schema-owner user + role assignment mirror the real
-                        // CreateSqlUser/AssignSqlUserRole actions. Only doable
-                        // for SQL authentication, since that's the only mode
-                        // where we have a login name to map the user to; for
-                        // Windows auth, K2 would use integrated auth instead
-                        // and this step is skipped.
-                        string userNote;
-                        if (string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var dbBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database };
-                            using (var dbConnection = new SqlConnection(dbBuilder.ConnectionString))
+                            bool alreadyExisted = DatabaseExists(connection, database);
+                            if (!alreadyExisted)
                             {
-                                dbConnection.Open();
-                                EnsureSchemaOwnerUser(dbConnection, username);
+                                CreateDatabase(connection, database);
+                                ApplyRecommendedDatabaseSettings(connection, database);
+                                createdCount++;
                             }
-                            userNote = $" Schema-owner user '{SchemaOwnerUser}' ensured with '{SchemaOwnerRole}' role.";
-                        }
-                        else
-                        {
-                            userNote = " Windows authentication: skipped SQL login-based schema-owner user, K2 will use integrated auth.";
+
+                            // Schema-owner user + role assignment mirror the real
+                            // CreateSqlUser/AssignSqlUserRole actions. Only doable
+                            // for SQL authentication, since that's the only mode
+                            // where we have a login name to map the user to; for
+                            // Windows auth, K2 would use integrated auth instead
+                            // and this step is skipped.
+                            if (string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var dbBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database };
+                                using (var dbConnection = new SqlConnection(dbBuilder.ConnectionString))
+                                {
+                                    dbConnection.Open();
+                                    EnsureSchemaOwnerUser(dbConnection, username);
+                                }
+                            }
                         }
 
-                        string dbNote = alreadyExisted
-                            ? $"Database '{database}' already exists."
-                            : $"Database '{database}' created with collation {RequiredCollation}.";
+                        string userNote = string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase)
+                            ? $" Schema-owner user '{SchemaOwnerUser}' ensured with '{SchemaOwnerRole}' role in each database."
+                            : " Windows authentication: skipped SQL login-based schema-owner user, K2 will use integrated auth.";
+
+                        string dbNote = createdCount == 0
+                            ? $"All {RealK2DatabaseNames.Length} K2 databases already exist."
+                            : $"Created {createdCount} of {RealK2DatabaseNames.Length} K2 databases with collation {RequiredCollation} (rest already existed).";
                         string versionNote = GetFriendlySqlVersionNote(connection);
                         Console.WriteLine($"Connected to {server}{versionNote}. {dbNote}{userNote}");
                         return 0;
@@ -141,7 +172,8 @@ namespace DotNetRunner
             string authMode = args[2];
             string username = args[3];
             string password = args[4];
-            string database = string.IsNullOrWhiteSpace(args[5]) ? "K2" : args[5];
+            // Same as TestConnectionAndDatabase: the real K2 database names
+            // are fixed, so args[5] isn't used to name anything dropped here.
 
             SqlException lastError = null;
 
@@ -153,23 +185,26 @@ namespace DotNetRunner
                     {
                         connection.Open();
 
-                        if (!DatabaseExists(connection, database))
+                        int droppedCount = 0;
+                        foreach (string database in RealK2DatabaseNames)
                         {
-                            Console.WriteLine($"Database '{database}' does not exist on {server}, nothing to drop.");
-                            return 0;
+                            if (!DatabaseExists(connection, database)) continue;
+
+                            string sanitized = database.Replace("]", "]]");
+                            using (var command = new SqlCommand($"ALTER DATABASE [{sanitized}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE", connection))
+                            {
+                                command.ExecuteNonQuery();
+                            }
+                            using (var command = new SqlCommand($"DROP DATABASE [{sanitized}]", connection))
+                            {
+                                command.ExecuteNonQuery();
+                            }
+                            droppedCount++;
                         }
 
-                        string sanitized = database.Replace("]", "]]");
-                        using (var command = new SqlCommand($"ALTER DATABASE [{sanitized}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE", connection))
-                        {
-                            command.ExecuteNonQuery();
-                        }
-                        using (var command = new SqlCommand($"DROP DATABASE [{sanitized}]", connection))
-                        {
-                            command.ExecuteNonQuery();
-                        }
-
-                        Console.WriteLine($"Database '{database}' dropped from {server}.");
+                        Console.WriteLine(droppedCount == 0
+                            ? $"None of the {RealK2DatabaseNames.Length} K2 databases exist on {server}, nothing to drop."
+                            : $"Dropped {droppedCount} of {RealK2DatabaseNames.Length} K2 databases from {server}.");
                         return 0;
                     }
                 }
