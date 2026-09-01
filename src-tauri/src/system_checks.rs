@@ -1,6 +1,16 @@
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
+
+/// Every PowerShell-based check goes through this timeout, so a
+/// slow/hung command (e.g. DISM taking minutes to build its component
+/// cache on a cold VM, which is what previously froze the whole app on
+/// the System check screen) can never block the app for more than this
+/// long; it just gets treated as a failed check instead.
+#[cfg(target_os = "windows")]
+const POWERSHELL_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Serialize)]
 pub struct CheckResult {
@@ -17,10 +27,27 @@ const MIN_DISPLAY_HEIGHT: u32 = 768;
 
 #[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> Option<String> {
-    let output = Command::new("powershell")
+    let mut child = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .ok()?;
+
+    let deadline = Instant::now() + POWERSHELL_TIMEOUT;
+    loop {
+        if let Ok(Some(_)) = child.try_wait() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    let output = child.wait_with_output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -202,12 +229,17 @@ pub fn check_sql_server() -> CheckResult {
 pub fn check_iis() -> CheckResult {
     #[cfg(target_os = "windows")]
     {
-        let script =
-            "(Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -ErrorAction SilentlyContinue).State";
+        // Deliberately not Get-WindowsOptionalFeature: that shells out to
+        // DISM, which scans the whole component store and can take
+        // minutes (or hang) on a VM whose DISM cache has never been
+        // built, freezing the whole app on this screen. The InetStp
+        // registry key is written by IIS setup and is a fast, reliable
+        // presence check without touching DISM at all.
+        let script = "(Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\InetStp' -Name MajorVersion -ErrorAction SilentlyContinue).MajorVersion";
         match run_powershell(script) {
-            Some(state) if state.trim() == "Enabled" => CheckResult {
+            Some(version) if !version.trim().is_empty() => CheckResult {
                 pass: true,
-                detail: "IIS is installed and enabled".to_string(),
+                detail: format!("IIS {} is installed", version.trim()),
             },
             _ => CheckResult {
                 pass: false,
@@ -230,10 +262,15 @@ pub fn check_iis() -> CheckResult {
 pub fn check_http_activation() -> CheckResult {
     #[cfg(target_os = "windows")]
     {
-        let script =
-            "(Get-WindowsOptionalFeature -Online -FeatureName WCF-HTTP-Activation45 -ErrorAction SilentlyContinue).State";
+        // Get-WindowsFeature (Windows Server's ServerManager module)
+        // queries a fast local provider, unlike Get-WindowsOptionalFeature
+        // -Online which shells out to DISM and can hang for minutes on a
+        // VM with a cold component-store cache. Falls back to reporting
+        // "not detected" (rather than hanging) on non-Server editions
+        // where ServerManager isn't available at all.
+        let script = "(Get-WindowsFeature -Name NET-WCF-HTTP-Activation45 -ErrorAction SilentlyContinue).InstallState";
         match run_powershell(script) {
-            Some(state) if state.trim() == "Enabled" => CheckResult {
+            Some(state) if state.trim() == "Installed" => CheckResult {
                 pass: true,
                 detail: "WCF HTTP Activation is enabled".to_string(),
             },

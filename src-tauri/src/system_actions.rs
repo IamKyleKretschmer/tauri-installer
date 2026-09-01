@@ -1,4 +1,13 @@
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+// Generous, since real mutating actions here (secedit, IIS site
+// creation) can legitimately take a while, but nothing should be able
+// to hang the app indefinitely, same reasoning as system_checks.rs's
+// POWERSHELL_TIMEOUT (which caught a real DISM hang on a cold VM).
+#[cfg(target_os = "windows")]
+const POWERSHELL_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Writes the install log to the current user's Desktop and returns the
 /// full path. Content is passed over stdin rather than embedded in the
@@ -53,10 +62,27 @@ $path
 
 #[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> Result<String, String> {
-    let output = Command::new("powershell")
+    let mut child = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
+
+    let deadline = Instant::now() + POWERSHELL_TIMEOUT;
+    loop {
+        if let Ok(Some(_)) = child.try_wait() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Timed out after {}s waiting for PowerShell", POWERSHELL_TIMEOUT.as_secs()));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    let output = child.wait_with_output().map_err(|e| format!("Failed to wait for PowerShell: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() {
