@@ -10,13 +10,13 @@ interface StepDef {
 const STEPS: StepDef[] = [
   { id: "welcome", label: "Welcome", icon: "⌂" },
   { id: "system-check", label: "System check", icon: "≡" },
-  { id: "prerequisites", label: "Prerequisites", icon: "☑" },
-  { id: "sql-server", label: "SQL Server", icon: "☷" },
+  { id: "prerequisites", label: "Prerequisites", icon: "✎" },
+  { id: "sql-server", label: "SQL Server", icon: "⛁" },
   { id: "iis-net", label: "IIS & .NET", icon: "⊞" },
-  { id: "active-directory", label: "Active Directory", icon: "⛁" },
-  { id: "network-tls", label: "Network & TLS", icon: "☢" },
+  { id: "active-directory", label: "Active Directory", icon: "🖧" },
+  { id: "network-tls", label: "Network & TLS", icon: "🌐" },
   { id: "review", label: "Review", icon: "☰" },
-  { id: "install", label: "Install", icon: "↻" },
+  { id: "install", label: "Install", icon: "⟳" },
 ];
 
 export { STEPS };
