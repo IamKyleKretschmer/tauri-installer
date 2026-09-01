@@ -468,13 +468,34 @@ if ($addr) { $addr }
 pub fn check_port(port: u16) -> CheckResult {
     #[cfg(target_os = "windows")]
     {
+        // A bare "something is listening on this port" check flags IIS's
+        // own Default Web Site as a conflict on 80/443, which it isn't:
+        // http.sys is a shared kernel listener, and multiple IIS sites
+        // (including the one this installer is about to create) can bind
+        // the same port side by side via distinct host headers. The real
+        // K2 installer doesn't ask you to change ports for this either.
+        // Only a genuinely different, non-IIS process holding the port
+        // (owning process isn't "System", http.sys's owner) is a real
+        // conflict worth surfacing.
         let script = format!(
-            "if (Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue) {{ 'in-use' }} else {{ 'free' }}"
+            r#"
+$conn = Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $conn) {{ 'free'; exit }}
+$proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+if ($proc -and $proc.ProcessName -eq 'System') {{ 'shared-iis' }} else {{ "in-use:$($proc.ProcessName)" }}
+"#
         );
         match run_powershell(&script).as_deref() {
-            Some("in-use") => CheckResult {
+            Some("shared-iis") => CheckResult {
+                pass: true,
+                detail: format!("Port {port} is already used by IIS (shared via http.sys), which is fine"),
+            },
+            Some(other) if other.starts_with("in-use:") => CheckResult {
                 pass: false,
-                detail: format!("Port {port} is already in use by another process"),
+                detail: format!(
+                    "Port {port} is already in use by another process ({})",
+                    other.trim_start_matches("in-use:")
+                ),
             },
             _ => CheckResult {
                 pass: true,

@@ -221,6 +221,12 @@ function App() {
     }
 
     if (step === "iis-net") {
+      // Informational only, doesn't block Next: a port already in use by
+      // IIS's own Default Web Site isn't a real conflict (http.sys shares
+      // ports across sites via host headers), and the real K2 installer
+      // doesn't require changing ports for this either. Still worth
+      // surfacing when it genuinely is a different process holding the
+      // port, so the user has a heads-up before Install fails on it.
       setIisTesting(true);
       setPortTestResult(null);
       const httpPort = Number(iisConfig.httpPort);
@@ -228,11 +234,7 @@ function App() {
       const [httpResult, httpsResult] = await Promise.all([checkPort(httpPort), checkPort(httpsPort)]);
       setIisTesting(false);
       const conflict = !httpResult.pass ? httpResult : !httpsResult.pass ? httpsResult : null;
-      if (conflict) {
-        setPortTestResult({ success: false, message: conflict.detail });
-        return;
-      }
-      setPortTestResult({ success: true, message: "Ports are available." });
+      setPortTestResult(conflict ? { success: false, message: conflict.detail } : { success: true, message: "Ports are available." });
     }
 
     if (step === "active-directory") {
