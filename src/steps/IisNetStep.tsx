@@ -10,6 +10,7 @@ export interface IisNetConfig {
   appPoolIdentity: string;
   sslCertificate: string;
   sourceFilesPath: string;
+  packageSource: string;
 }
 
 export function IisNetStep({
@@ -123,8 +124,16 @@ export function IisNetStep({
       )}
 
       <TextInput
+        label="K2 installation package (optional)"
+        hint="An http(s) URL or a local .zip path. If set, the Install step will actually download (or copy) and extract this package first, standing in for the real installer's Initialize-Download/Initialize-Extract steps, then deploy from the extracted folder instead of the source files folder below."
+        placeholder="https://example.com/k2-package.zip or C:\Downloads\k2-package.zip"
+        value={local.packageSource}
+        onChange={(e) => update({ packageSource: e.target.value })}
+      />
+
+      <TextInput
         label="K2 source files folder (optional)"
-        hint="A local folder or share laid out with a 'HostServer' subfolder and one subfolder per K2 web app (e.g. Management, Designer), matching the real C:\Program Files\K2\WebServices layout. Leave blank to skip file deployment; the IIS folders will still be created but left empty."
+        hint="A local folder or share laid out with a 'HostServer' subfolder and one subfolder per K2 web app (e.g. Management, Designer), matching the real C:\Program Files\K2\WebServices layout. Ignored if an installation package is set above. Leave both blank to skip file deployment; the IIS folders will still be created but left empty."
         value={local.sourceFilesPath}
         onChange={(e) => update({ sourceFilesPath: e.target.value })}
       />

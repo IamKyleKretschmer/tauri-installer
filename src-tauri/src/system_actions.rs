@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
@@ -567,6 +570,87 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
         let _ = account;
         unsupported("Revoking the service logon right")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}
+
+/// Local build folder the POC downloads/extracts into, mirroring the
+/// FullBuild folder AutomateK2Install_v4.7.ps1's Initialize-Download /
+/// Initialize-Extract create under the K2 support share.
+fn build_folder() -> PathBuf {
+    std::env::temp_dir().join("K2InstallBuild")
+}
+
+/// Real download step, standing in for AutomateK2Install_v4.7.ps1's
+/// Initialize-Download (which pulls a version-specific installer package
+/// from K2's own CDN). We don't have a real K2 CDN URL or license to hit,
+/// so this fetches whatever package source the wizard is given instead:
+/// an http(s) URL is actually downloaded over the network, a local path
+/// is actually copied. Either way the file that lands in the build
+/// folder is real, not simulated.
+#[tauri::command]
+pub async fn download_k2_package(package_source: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dest_dir = build_folder();
+        std::fs::create_dir_all(&dest_dir).map_err(|e| format!("Failed to create build folder: {e}"))?;
+
+        let file_name = package_source
+            .rsplit(['/', '\\'])
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("k2-package.zip");
+        let dest_path = dest_dir.join(file_name);
+
+        if package_source.starts_with("http://") || package_source.starts_with("https://") {
+            let response = reqwest::blocking::get(&package_source)
+                .map_err(|e| format!("Download failed: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Download failed: {e}"))?;
+            let bytes = response.bytes().map_err(|e| format!("Failed to read download: {e}"))?;
+            let mut file = File::create(&dest_path).map_err(|e| format!("Failed to write {}: {e}", dest_path.display()))?;
+            file.write_all(&bytes).map_err(|e| format!("Failed to write {}: {e}", dest_path.display()))?;
+            Ok(format!(
+                "{}|Downloaded {} bytes to {}",
+                dest_path.display(),
+                bytes.len(),
+                dest_path.display()
+            ))
+        } else {
+            let source_path = PathBuf::from(&package_source);
+            if !source_path.is_file() {
+                return Err(format!("Package not found: {}", source_path.display()));
+            }
+            let bytes = std::fs::copy(&source_path, &dest_path)
+                .map_err(|e| format!("Failed to copy {}: {e}", source_path.display()))?;
+            Ok(format!("{}|Copied {} bytes to {}", dest_path.display(), bytes, dest_path.display()))
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}
+
+/// Real extract step, standing in for Initialize-Extract's
+/// `Start-Process ... -ArgumentList "-y -gm2 -nr"` self-extraction. Uses
+/// the `zip` crate to actually unpack the downloaded/copied archive into
+/// the build folder's Extracted subdirectory (matching the real script's
+/// "...\Installation" layout it then Set-Location's into).
+#[tauri::command]
+pub async fn extract_k2_package(archive_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let archive_path = PathBuf::from(archive_path);
+        let file = File::open(&archive_path).map_err(|e| format!("Failed to open {}: {e}", archive_path.display()))?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip package: {e}"))?;
+
+        let extract_dir = build_folder().join("Extracted");
+        std::fs::create_dir_all(&extract_dir).map_err(|e| format!("Failed to create {}: {e}", extract_dir.display()))?;
+
+        let count = archive.len();
+        archive
+            .extract(&extract_dir)
+            .map_err(|e| format!("Extraction failed: {e}"))?;
+
+        Ok(format!("{}|Extracted {} entries to {}", extract_dir.display(), count, extract_dir.display()))
     })
     .await
     .map_err(|e| format!("Background task failed: {e}"))?

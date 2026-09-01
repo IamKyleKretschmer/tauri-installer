@@ -3,7 +3,15 @@ import type { SqlServerConfig } from "./SqlServerStep";
 import type { IisNetConfig } from "./IisNetStep";
 import type { FinishedSummary } from "./FinishedStep";
 import type { PrerequisiteItem, ProductInfo } from "../services/installer.service";
-import { configureIisSite, deployK2Payload, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
+import {
+  configureIisSite,
+  deployK2Payload,
+  disableLegacyTls,
+  downloadK2Package,
+  extractK2Package,
+  grantServiceLogonRight,
+  testSqlConnection,
+} from "../services/installer.service";
 
 interface InstallTask {
   id: string;
@@ -75,6 +83,12 @@ export function InstallStep({
     let cancelled = false;
     const startedAt = Date.now();
     let dbResultMessage: string | null = null;
+    // Populated by the "download"/"extract" tasks below when a real
+    // installation package is configured, then consumed by "components"
+    // so it deploys from the extracted package instead of the manually
+    // entered source files folder — mirroring the real script's
+    // Initialize-Download -> Initialize-Extract -> Initialize-Install chain.
+    let extractedSourcePath: string | null = null;
     // Accumulated locally (not just via setLog) so the final onDone call
     // can hand App the complete log; React state read through this
     // closure would otherwise be stale (captured once, at effect
@@ -120,7 +134,26 @@ export function InstallStep({
     // source files folder was provided (copies the real payload into the
     // Host Server bin folder); otherwise it reports a skip rather than
     // failing.
+    const packageSource = iisConfigRef.current.packageSource.trim();
+
     const realTasks: Record<string, () => Promise<{ success: boolean; message: string }>> = {
+      ...(packageSource
+        ? {
+            download: async () => {
+              const result = await downloadK2Package(packageSource);
+              if (result.success) extractedSourcePath = result.extractedPath;
+              return result;
+            },
+            extract: async () => {
+              if (!extractedSourcePath) {
+                return { success: false, message: "No downloaded package available to extract." };
+              }
+              const result = await extractK2Package(extractedSourcePath);
+              if (result.success) extractedSourcePath = result.extractedPath;
+              return result;
+            },
+          }
+        : {}),
       db: () => {
         const config = sqlConfigRef.current;
         return testSqlConnection({
@@ -142,7 +175,7 @@ export function InstallStep({
         });
       },
       tls: () => disableLegacyTls(),
-      components: () => deployK2Payload(iisConfigRef.current.sourceFilesPath),
+      components: () => deployK2Payload(extractedSourcePath ?? iisConfigRef.current.sourceFilesPath),
       ad: () => grantServiceLogonRight(adServiceAccountRef.current),
     };
 

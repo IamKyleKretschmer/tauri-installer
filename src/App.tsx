@@ -90,6 +90,7 @@ const DEFAULT_IIS_CONFIG: IisNetConfig = {
   appPoolIdentity: "NetworkService",
   sslCertificate: "",
   sourceFilesPath: "",
+  packageSource: "",
 };
 
 const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {

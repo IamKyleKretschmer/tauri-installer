@@ -97,6 +97,8 @@ export const tauriBridge = {
       certificateThumbprint: params.certificateThumbprint,
     }),
   copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
+  downloadK2Package: (packageSource: string) => invoke<string>("download_k2_package", { packageSource }),
+  extractK2Package: (archivePath: string) => invoke<string>("extract_k2_package", { archivePath }),
   scaffoldK2PlaceholderPages: () => invoke<string>("scaffold_k2_placeholder_pages"),
   disableLegacyTls: () => invoke<string>("disable_legacy_tls"),
   restoreLegacyTls: () => invoke<string>("restore_legacy_tls"),

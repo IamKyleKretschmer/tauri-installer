@@ -321,6 +321,44 @@ export async function scaffoldK2PlaceholderPages(): Promise<ActionResult> {
   }
 }
 
+export interface ExtractResult extends ActionResult {
+  /** Folder the package was actually extracted into, when success is true. */
+  extractedPath: string | null;
+}
+
+/**
+ * Real download step, standing in for AutomateK2Install_v4.7.ps1's
+ * Initialize-Download: an http(s) packageSource is actually fetched over
+ * the network, a local path is actually copied. Returns the local path
+ * the package landed at (parsed out of the backend's "path|message" reply)
+ * so it can be handed straight to extractK2Package.
+ */
+export async function downloadK2Package(packageSource: string): Promise<ExtractResult> {
+  try {
+    const raw = await tauriBridge.downloadK2Package(packageSource);
+    const [path, message] = splitPathAndMessage(raw);
+    return { success: true, message, extractedPath: path };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error), extractedPath: null };
+  }
+}
+
+/** Real extract step: actually unzips the downloaded/copied package via the `zip` crate. */
+export async function extractK2Package(archivePath: string): Promise<ExtractResult> {
+  try {
+    const raw = await tauriBridge.extractK2Package(archivePath);
+    const [path, message] = splitPathAndMessage(raw);
+    return { success: true, message, extractedPath: path };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error), extractedPath: null };
+  }
+}
+
+function splitPathAndMessage(raw: string): [string, string] {
+  const separatorIndex = raw.indexOf("|");
+  return separatorIndex === -1 ? [raw, raw] : [raw.slice(0, separatorIndex), raw.slice(separatorIndex + 1)];
+}
+
 /** Copies any real K2 files provided, then scaffolds placeholders for whatever's still empty. */
 export async function deployK2Payload(sourceRoot: string): Promise<ActionResult> {
   const copyResult = await copyK2Files(sourceRoot);
