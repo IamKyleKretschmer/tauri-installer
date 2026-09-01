@@ -310,6 +310,54 @@ p {{ color: #9aa3c9; margin: 0.4rem 0; }}
     }
 }
 
+/// Removes the K2 site, its own app pool, and every K2 web application
+/// app pool created by configure_iis_site. Leaves the physical files on
+/// disk untouched (only the IIS configuration is reverted); scoped to
+/// just this one site name and its own app pools, same as
+/// configure_iis_site is scoped when creating them.
+#[tauri::command]
+pub fn remove_iis_site(site_name: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let web_apps_list = K2_WEB_APPS.join(",");
+
+        let script = format!(
+            r#"
+Import-Module WebAdministration -ErrorAction Stop
+$site = '{site_name}'
+$webApps = '{web_apps_list}' -split ','
+$removed = 0
+
+if (Get-Website -Name $site -ErrorAction SilentlyContinue) {{
+    Remove-Website -Name $site
+    $removed++
+}}
+
+foreach ($app in $webApps) {{
+    $appPoolName = "$site $app"
+    if (Test-Path "IIS:\AppPools\$appPoolName") {{
+        Remove-WebAppPool -Name $appPoolName
+        $removed++
+    }}
+}}
+
+if (Test-Path "IIS:\AppPools\$site") {{
+    Remove-WebAppPool -Name $site
+    $removed++
+}}
+
+"Removed site '$site' and $($removed - 1) associated app pool(s)"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = site_name;
+        unsupported("Removing the IIS site")
+    }
+}
+
 /// Disables TLS 1.0 and 1.1 for both Client and Server roles via the
 /// Schannel registry keys. Machine-wide: affects every app/service on
 /// this box, not just K2, and typically needs a reboot to fully take
@@ -336,6 +384,34 @@ foreach ($protocol in $protocols) {
     #[cfg(not(target_os = "windows"))]
     {
         unsupported("Disabling TLS 1.0/1.1")
+    }
+}
+
+/// Reverses disable_legacy_tls: re-enables TLS 1.0 and 1.1 for both
+/// Client and Server roles via the same Schannel registry keys.
+/// Machine-wide, same caveat as the original action.
+#[tauri::command]
+pub fn restore_legacy_tls() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$protocols = 'TLS 1.0', 'TLS 1.1'
+$roles = 'Client', 'Server'
+foreach ($protocol in $protocols) {
+    foreach ($role in $roles) {
+        $key = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\$protocol\$role"
+        New-Item -Path $key -Force | Out-Null
+        New-ItemProperty -Path $key -Name 'Enabled' -Value 1 -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $key -Name 'DisabledByDefault' -Value 0 -PropertyType DWord -Force | Out-Null
+    }
+}
+"TLS 1.0 and 1.1 re-enabled for Client and Server (registry updated, a reboot may be required for other services to pick this up)"
+"#;
+        run_powershell(script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Restoring TLS 1.0/1.1")
     }
 }
 
@@ -381,5 +457,47 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
     {
         let _ = account;
         unsupported("Granting the service logon right")
+    }
+}
+
+/// Reverses grant_service_logon_right: removes the given account's SID
+/// from the SeServiceLogonRight local security policy line, via the
+/// same secedit export/edit/import round-trip. Leaves the right intact
+/// for any other accounts already granted it.
+#[tauri::command]
+pub fn revoke_service_logon_right(account: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = format!(
+            r#"
+$account = '{account}'
+$sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+$cfgPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).cfg"
+$dbPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).sdb"
+
+secedit /export /cfg $cfgPath /areas USER_RIGHTS | Out-Null
+$content = Get-Content $cfgPath
+
+$existingLine = $content | Select-String '^SeServiceLogonRight'
+if ($existingLine) {{
+    $members = $existingLine.Line -replace '^SeServiceLogonRight\s*=\s*', ''
+    $remaining = ($members -split ',') | Where-Object {{ $_ -notmatch [regex]::Escape($sid) }}
+    $newLine = "SeServiceLogonRight = " + ($remaining -join ',')
+    $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+}}
+$content | Set-Content $cfgPath
+
+secedit /configure /db $dbPath /cfg $cfgPath /areas USER_RIGHTS | Out-Null
+Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
+
+"Revoked 'Log on as a service' from $account"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = account;
+        unsupported("Revoking the service logon right")
     }
 }

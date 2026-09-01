@@ -104,6 +104,73 @@ namespace DotNetRunner
             return 1;
         }
 
+        /// <summary>
+        /// Drops the K2 database, reversing TestConnectionAndDatabase's
+        /// CreateDatabase. Forces existing connections off first
+        /// (SINGLE_USER WITH ROLLBACK IMMEDIATE), same as any real
+        /// uninstall would need to since a running K2 server would
+        /// otherwise be holding a connection open.
+        /// args: [0]=drop-database, [1]=server, [2]=auth mode, [3]=username, [4]=password, [5]=database.
+        /// </summary>
+        public static int DropDatabase(string[] args)
+        {
+            if (args.Length < 6)
+            {
+                Console.Error.WriteLine("Usage: DotNetRunner.exe drop-database <server> <sql|windows> <username> <password> <database>");
+                return 1;
+            }
+
+            string server = string.IsNullOrWhiteSpace(args[1]) ? @".\SQLEXPRESS" : args[1];
+            string authMode = args[2];
+            string username = args[3];
+            string password = args[4];
+            string database = string.IsNullOrWhiteSpace(args[5]) ? "K2" : args[5];
+
+            SqlException lastError = null;
+
+            foreach (string connectionString in BuildCandidateConnectionStrings(server, authMode, username, password))
+            {
+                try
+                {
+                    using (var connection = new SqlConnection(connectionString))
+                    {
+                        connection.Open();
+
+                        if (!DatabaseExists(connection, database))
+                        {
+                            Console.WriteLine($"Database '{database}' does not exist on {server}, nothing to drop.");
+                            return 0;
+                        }
+
+                        string sanitized = database.Replace("]", "]]");
+                        using (var command = new SqlCommand($"ALTER DATABASE [{sanitized}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE", connection))
+                        {
+                            command.ExecuteNonQuery();
+                        }
+                        using (var command = new SqlCommand($"DROP DATABASE [{sanitized}]", connection))
+                        {
+                            command.ExecuteNonQuery();
+                        }
+
+                        Console.WriteLine($"Database '{database}' dropped from {server}.");
+                        return 0;
+                    }
+                }
+                catch (SqlException ex)
+                {
+                    lastError = ex;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Unexpected error dropping database on '{server}': {ex.Message}");
+                    return 1;
+                }
+            }
+
+            Console.Error.WriteLine($"Could not connect to '{server}': {lastError?.Message}");
+            return 1;
+        }
+
         private static IEnumerable<string> BuildCandidateConnectionStrings(string server, string authMode, string username, string password)
         {
             if (string.Equals(authMode, "windows", StringComparison.OrdinalIgnoreCase))

@@ -97,7 +97,18 @@ export const tauriBridge = {
   copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
   scaffoldK2PlaceholderPages: () => invoke<string>("scaffold_k2_placeholder_pages"),
   disableLegacyTls: () => invoke<string>("disable_legacy_tls"),
+  restoreLegacyTls: () => invoke<string>("restore_legacy_tls"),
   grantServiceLogonRight: (account: string) => invoke<string>("grant_service_logon_right", { account }),
+  revokeServiceLogonRight: (account: string) => invoke<string>("revoke_service_logon_right", { account }),
+  removeIisSite: (siteName: string) => invoke<string>("remove_iis_site", { siteName }),
+  dropK2Database: (params: { instance: string; authMode: string; username: string; password: string; database: string }) =>
+    invoke<string>("drop_k2_database", {
+      instance: params.instance,
+      authMode: params.authMode,
+      username: params.username,
+      password: params.password,
+      database: params.database,
+    }),
   writeInstallLog: (contents: string) => invoke<string>("write_install_log", { contents }),
   openUrl: (url: string) => openUrl(url),
   openPath: (path: string) => openPath(path),

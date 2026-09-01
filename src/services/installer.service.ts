@@ -181,6 +181,16 @@ export async function testSqlConnection(params: SqlConnectionTestParams): Promis
   }
 }
 
+/** Drops the K2 database, reversing testSqlConnection's database creation. */
+export async function dropK2Database(params: SqlConnectionTestParams): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.dropK2Database(params);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export interface InstallLogLine {
   timestamp: string;
   message: string;
@@ -330,6 +340,36 @@ export async function disableLegacyTls(): Promise<ActionResult> {
 export async function grantServiceLogonRight(account: string): Promise<ActionResult> {
   try {
     const message = await tauriBridge.grantServiceLogonRight(account);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Reverses disableLegacyTls: re-enables TLS 1.0/1.1 machine-wide. */
+export async function restoreLegacyTls(): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.restoreLegacyTls();
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Reverses grantServiceLogonRight: removes the account from the local security policy right. */
+export async function revokeServiceLogonRight(account: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.revokeServiceLogonRight(account);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Removes the K2 IIS site and its app pools, reversing configureIisSite. */
+export async function removeIisSite(siteName: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.removeIisSite(siteName);
     return { success: true, message };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };

@@ -16,6 +16,8 @@ namespace DotNetRunner
             {
                 case "test-sql":
                     return SqlServerCheck.TestConnectionAndDatabase(args);
+                case "drop-database":
+                    return SqlServerCheck.DropDatabase(args);
                 case "ad-check":
                     return ActiveDirectoryCheck.CheckObjects(args);
                 default:

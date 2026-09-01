@@ -20,6 +20,10 @@ import { InstallStep } from "./steps/InstallStep";
 import { FinishedStep, formatElapsed } from "./steps/FinishedStep";
 import type { FinishedSummary } from "./steps/FinishedStep";
 import { BlueprintSavedStep } from "./steps/BlueprintSavedStep";
+import { RemoveStep } from "./steps/RemoveStep";
+import type { RemoveConfig } from "./steps/RemoveStep";
+import { RemovalStep } from "./steps/RemovalStep";
+import type { RemovalSummary } from "./steps/RemovalStep";
 import type {
   ActionResult,
   CertificateInfo,
@@ -99,6 +103,16 @@ const DEFAULT_NETWORK_CONFIG: NetworkTlsConfig = {
   hostname: "k2server.contoso.local",
 };
 
+const DEFAULT_REMOVE_CONFIG: RemoveConfig = {
+  siteName: DEFAULT_IIS_CONFIG.siteName,
+  sqlInstance: "",
+  sqlAuthMode: DEFAULT_SQL_CONFIG.authMode,
+  sqlUsername: DEFAULT_SQL_CONFIG.username,
+  sqlPassword: "",
+  databaseName: DEFAULT_SQL_CONFIG.databaseName,
+  adServiceAccount: DEFAULT_AD_CONFIG.serviceAccount,
+};
+
 function App() {
   const [step, setStep] = useState<WizardStep>("welcome");
   const [completed, setCompleted] = useState<Set<WizardStep>>(new Set());
@@ -112,6 +126,9 @@ function App() {
 
   const [maintenanceAction, setMaintenanceAction] = useState<MaintenanceAction>("configure");
   const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
+  const [removeConfig, setRemoveConfig] = useState<RemoveConfig>(DEFAULT_REMOVE_CONFIG);
+  const [removeConfirmed, setRemoveConfirmed] = useState(false);
+  const [removalSummary, setRemovalSummary] = useState<RemovalSummary | null>(null);
 
   const [sqlTesting, setSqlTesting] = useState(false);
   const [sqlTestResult, setSqlTestResult] = useState<ActionResult | null>(null);
@@ -468,6 +485,57 @@ function App() {
           onContinue={() => setMaintenanceChosen(maintenanceAction)}
           installedVersion={installedVersion.status === "ready" ? installedVersion.value : null}
         />
+      </div>
+    );
+  }
+
+  if (maintenanceChosen === "remove") {
+    return (
+      <div className="app-shell">
+        {removalSummary ? (
+          <div className="maintenance-gate">
+            <div className="maintenance-card" style={{ width: 460 }}>
+              <h2 className="maintenance-card__title">
+                {removalSummary.failed ? "Removal finished with errors" : "K2 removed"}
+              </h2>
+              <p className="maintenance-card__intro">
+                {removalSummary.failed
+                  ? "Some steps failed. Review the log below and re-run Remove if needed."
+                  : "K2's IIS site, database, TLS setting, and service account right have been reverted."}
+              </p>
+              <pre className="install-console">
+                {removalSummary.log.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </pre>
+              <div className="maintenance-card__actions">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setRemovalSummary(null);
+                    setRemoveConfirmed(false);
+                    setMaintenanceChosen(null);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : removeConfirmed ? (
+          <div className="wizard-shell">
+            <div className="wizard-shell__content">
+              <RemovalStep config={removeConfig} onDone={setRemovalSummary} />
+            </div>
+          </div>
+        ) : (
+          <RemoveStep
+            config={removeConfig}
+            onChange={setRemoveConfig}
+            onConfirm={() => setRemoveConfirmed(true)}
+            onCancel={() => setMaintenanceChosen(null)}
+          />
+        )}
       </div>
     );
   }

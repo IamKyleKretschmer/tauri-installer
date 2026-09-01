@@ -248,6 +248,31 @@ pub fn test_sql_connection(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Drops the K2 database, reversing test_sql_connection's database
+/// creation. Same DotNetRunner spawn pattern, just a different command.
+#[tauri::command]
+pub fn drop_k2_database(
+    instance: String,
+    auth_mode: String,
+    username: String,
+    password: String,
+    database: String,
+) -> Result<String, String> {
+    validate_sql_fields(&auth_mode, &username, &password, &database)?;
+
+    let runner = dotnet_runner_path();
+    let output = Command::new(runner)
+        .args(["drop-database", &instance, &auth_mode, &username, &password, &database])
+        .output()
+        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 /// Looks up the K2 service account and administrators group in Active
 /// Directory (read-only, via DotNetRunner's ad-check command). This
 /// deliberately never creates the group even when "Create this group in
