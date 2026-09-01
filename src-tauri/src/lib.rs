@@ -24,6 +24,8 @@ pub fn run() {
             system_checks::check_display,
             system_checks::check_sql_server,
             system_checks::check_iis,
+            system_checks::check_http_activation,
+            system_checks::check_msdtc,
             system_checks::check_vc_redist,
             system_checks::check_domain_joined,
             system_checks::check_tls12,

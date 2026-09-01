@@ -135,6 +135,7 @@ if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
 
 New-WebAppPool -Name $site | Out-Null
 Set-ItemProperty "IIS:\AppPools\$site" -Name processModel.identityType -Value $identity
+Set-ItemProperty "IIS:\AppPools\$site" -Name managedPipelineMode -Value Classic
 
 $sitePhysicalPath = "$env:ProgramFiles\K2\WebServices"
 New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
@@ -145,6 +146,9 @@ foreach ($app in $webApps) {{
     if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {{
         New-WebAppPool -Name $appPoolName | Out-Null
         Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value $identity
+        # K2's ApplicationPoolPipelineMode checklist task requires Classic,
+        # not IIS's own default of Integrated.
+        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name managedPipelineMode -Value Classic
     }}
     $appPhysicalPath = Join-Path $sitePhysicalPath $app
     New-Item -ItemType Directory -Force -Path $appPhysicalPath | Out-Null

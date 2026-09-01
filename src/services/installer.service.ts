@@ -223,16 +223,22 @@ export async function detectK2Installed(): Promise<boolean> {
 export interface IisChecks {
   iis: CheckResult;
   dotnet: CheckResult;
+  httpActivation: CheckResult;
+  msdtc: CheckResult;
   certificates: CertificateInfo[];
 }
 
 export async function getIisChecks(): Promise<IisChecks> {
-  const [iis, dotnet, certificates] = await Promise.all([
+  const [iis, dotnet, httpActivation, msdtc, certificates] = await Promise.all([
     tauriBridge.checkIis().catch((): CheckResult => ({ pass: false, detail: "Could not determine IIS status" })),
     getDotNetStatus().catch((): CheckResult => ({ pass: false, detail: "Could not determine .NET status" })),
+    tauriBridge
+      .checkHttpActivation()
+      .catch((): CheckResult => ({ pass: false, detail: "Could not determine WCF HTTP Activation status" })),
+    tauriBridge.checkMsdtc().catch((): CheckResult => ({ pass: false, detail: "Could not determine MSDTC status" })),
     tauriBridge.listCertificates().catch(() => [] as CertificateInfo[]),
   ]);
-  return { iis, dotnet, certificates };
+  return { iis, dotnet, httpActivation, msdtc, certificates };
 }
 
 export async function checkPort(port: number): Promise<CheckResult> {

@@ -221,6 +221,61 @@ pub fn check_iis() -> CheckResult {
     }
 }
 
+/// Checks the WCF HTTP Activation Windows feature (WCF-HTTP-Activation45),
+/// required for K2's WCF-hosted services, matching the real K2
+/// Configuration Checklist's HttpActivationTask. Informational, like
+/// check_iis: the Prerequisites step offers to enable it via Windows
+/// Features rather than doing so silently here.
+#[tauri::command]
+pub fn check_http_activation() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script =
+            "(Get-WindowsOptionalFeature -Online -FeatureName WCF-HTTP-Activation45 -ErrorAction SilentlyContinue).State";
+        match run_powershell(script) {
+            Some(state) if state.trim() == "Enabled" => CheckResult {
+                pass: true,
+                detail: "WCF HTTP Activation is enabled".to_string(),
+            },
+            _ => CheckResult {
+                pass: false,
+                detail: "Not detected, will be enabled via Windows Features".to_string(),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("WCF HTTP Activation")
+    }
+}
+
+/// Checks whether the Distributed Transaction Coordinator service is
+/// running, matching the real K2 Configuration Checklist's DatabaseDTC
+/// task ("This installation needs the Distributed Transaction
+/// Coordinator..."). Informational only, same as the real task has no
+/// automated repair for it either.
+#[tauri::command]
+pub fn check_msdtc() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let script = "(Get-Service -Name MSDTC -ErrorAction SilentlyContinue).Status";
+        match run_powershell(script) {
+            Some(status) if status.trim() == "Running" => CheckResult {
+                pass: true,
+                detail: "Distributed Transaction Coordinator service is running".to_string(),
+            },
+            _ => CheckResult {
+                pass: false,
+                detail: "Distributed Transaction Coordinator service is not running".to_string(),
+            },
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Distributed Transaction Coordinator")
+    }
+}
+
 /// Checks the official Microsoft-documented registry location for the
 /// VC++ 2015-2022 x64 redistributable (the "Runtimes" key, present under
 /// both the native and WOW6432Node hives depending on OS architecture).

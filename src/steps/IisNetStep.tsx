@@ -57,6 +57,36 @@ export function IisNetStep({
 
       <Banner tone={bannerTone}>{bannerText}</Banner>
 
+      {checks && (
+        <div className="panel-card">
+          <h3 className="panel-card__title">Additional K2 prerequisites</h3>
+          <div className="checklist-items">
+            <div className="checklist-item">
+              <span
+                className={`checklist-item__icon ${checks.httpActivation.pass ? "checklist-item__icon--pass" : "checklist-item__icon--fail"}`}
+              >
+                {checks.httpActivation.pass ? "✓" : "✗"}
+              </span>
+              <div>
+                <div className="checklist-item__label">WCF HTTP Activation</div>
+                <div className="checklist-item__detail">{checks.httpActivation.detail}</div>
+              </div>
+            </div>
+            <div className="checklist-item">
+              <span
+                className={`checklist-item__icon ${checks.msdtc.pass ? "checklist-item__icon--pass" : "checklist-item__icon--fail"}`}
+              >
+                {checks.msdtc.pass ? "✓" : "✗"}
+              </span>
+              <div>
+                <div className="checklist-item__label">Distributed Transaction Coordinator</div>
+                <div className="checklist-item__detail">{checks.msdtc.detail}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <TextInput label="IIS site name" value={local.siteName} onChange={(e) => update({ siteName: e.target.value })} />
 
       <div className="field-row">
