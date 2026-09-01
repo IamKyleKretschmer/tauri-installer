@@ -13,6 +13,12 @@ namespace DotNetRunner
     {
         private const string RequiredCollation = "SQL_Latin1_General_CP1_CI_AS";
         private const int ConnectTimeoutSeconds = 8;
+        private const string SchemaOwnerUser = "k2_schema_owner";
+        // The real K2 installer's AssignSqlUserRole target has no default
+        // for Role in what we could recover (it's supplied per-component
+        // by a manifest we don't have); db_owner is the standard role for
+        // a schema-owner account to fully manage K2's own database.
+        private const string SchemaOwnerRole = "db_owner";
 
         /// <summary>
         /// args: [0]=test-sql, [1]=server instance, [2]=auth mode (sql|windows),
@@ -47,14 +53,39 @@ namespace DotNetRunner
                     {
                         connection.Open();
 
-                        if (DatabaseExists(connection, database))
+                        bool alreadyExisted = DatabaseExists(connection, database);
+                        if (!alreadyExisted)
                         {
-                            Console.WriteLine($"Connected to {server}. Database '{database}' already exists.");
-                            return 0;
+                            CreateDatabase(connection, database);
+                            ApplyRecommendedDatabaseSettings(connection, database);
                         }
 
-                        CreateDatabase(connection, database);
-                        Console.WriteLine($"Connected to {server}. Database '{database}' created with collation {RequiredCollation}.");
+                        // Schema-owner user + role assignment mirror the real
+                        // CreateSqlUser/AssignSqlUserRole actions. Only doable
+                        // for SQL authentication, since that's the only mode
+                        // where we have a login name to map the user to; for
+                        // Windows auth, K2 would use integrated auth instead
+                        // and this step is skipped.
+                        string userNote;
+                        if (string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var dbBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database };
+                            using (var dbConnection = new SqlConnection(dbBuilder.ConnectionString))
+                            {
+                                dbConnection.Open();
+                                EnsureSchemaOwnerUser(dbConnection, username);
+                            }
+                            userNote = $" Schema-owner user '{SchemaOwnerUser}' ensured with '{SchemaOwnerRole}' role.";
+                        }
+                        else
+                        {
+                            userNote = " Windows authentication: skipped SQL login-based schema-owner user, K2 will use integrated auth.";
+                        }
+
+                        string dbNote = alreadyExisted
+                            ? $"Database '{database}' already exists."
+                            : $"Database '{database}' created with collation {RequiredCollation}.";
+                        Console.WriteLine($"Connected to {server}. {dbNote}{userNote}");
                         return 0;
                     }
                 }
@@ -137,6 +168,88 @@ namespace DotNetRunner
             using (var command = new SqlCommand(sql, connection))
             {
                 command.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// The same ALTER DATABASE settings batch as the real
+        /// SourceCode.Install.Package.Actions.Database.CreateDatabase
+        /// action applies after creating a fresh K2 database.
+        /// </summary>
+        private static void ApplyRecommendedDatabaseSettings(SqlConnection connection, string database)
+        {
+            string sanitized = database.Replace("]", "]]");
+            string[] statements =
+            {
+                $"ALTER DATABASE [{sanitized}] SET QUOTED_IDENTIFIER ON;",
+                $"ALTER DATABASE [{sanitized}] SET AUTO_CLOSE OFF;",
+                $"ALTER DATABASE [{sanitized}] SET AUTO_SHRINK OFF;",
+                $"ALTER DATABASE [{sanitized}] SET AUTO_CREATE_STATISTICS ON;",
+                $"ALTER DATABASE [{sanitized}] SET AUTO_UPDATE_STATISTICS ON;",
+                $"ALTER DATABASE [{sanitized}] SET AUTO_UPDATE_STATISTICS_ASYNC ON;",
+                $"ALTER DATABASE [{sanitized}] SET DATE_CORRELATION_OPTIMIZATION OFF;",
+                $"ALTER DATABASE [{sanitized}] SET PARAMETERIZATION FORCED;",
+                $"ALTER DATABASE [{sanitized}] SET RECOVERY FULL;",
+                $"ALTER DATABASE [{sanitized}] SET PAGE_VERIFY CHECKSUM;",
+            };
+
+            foreach (string sql in statements)
+            {
+                using (var command = new SqlCommand(sql, connection))
+                {
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Mirrors the real CreateSqlUser + AssignSqlUserRole actions:
+        /// creates a SQL-authenticated user mapped to the connecting
+        /// login, with dbo as its default schema, then adds it to
+        /// db_owner so it can fully manage the K2 database. Idempotent,
+        /// same as the real actions' own existence checks.
+        /// </summary>
+        private static void EnsureSchemaOwnerUser(SqlConnection dbConnection, string login)
+        {
+            if (!UserExists(dbConnection, SchemaOwnerUser))
+            {
+                string sanitizedUser = SchemaOwnerUser.Replace("]", "]]");
+                string sanitizedLogin = login.Replace("]", "]]");
+                string sql = $"CREATE USER [{sanitizedUser}] FOR LOGIN [{sanitizedLogin}] WITH DEFAULT_SCHEMA=[dbo]";
+                using (var command = new SqlCommand(sql, dbConnection))
+                {
+                    command.ExecuteNonQuery();
+                }
+            }
+
+            if (!UserInRole(dbConnection, SchemaOwnerUser, SchemaOwnerRole))
+            {
+                using (var command = new SqlCommand("EXEC sp_addrolemember @role, @user", dbConnection))
+                {
+                    command.Parameters.AddWithValue("@role", SchemaOwnerRole);
+                    command.Parameters.AddWithValue("@user", SchemaOwnerUser);
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private static bool UserExists(SqlConnection connection, string user)
+        {
+            using (var command = new SqlCommand("SELECT 1 FROM sys.database_principals WHERE name = @name", connection))
+            {
+                command.Parameters.AddWithValue("@name", user);
+                return command.ExecuteScalar() != null;
+            }
+        }
+
+        private static bool UserInRole(SqlConnection connection, string user, string role)
+        {
+            using (var command = new SqlCommand("SELECT IS_ROLEMEMBER(@role, @user)", connection))
+            {
+                command.Parameters.AddWithValue("@role", role);
+                command.Parameters.AddWithValue("@user", user);
+                object result = command.ExecuteScalar();
+                return result != null && result != DBNull.Value && Convert.ToInt32(result) == 1;
             }
         }
     }
