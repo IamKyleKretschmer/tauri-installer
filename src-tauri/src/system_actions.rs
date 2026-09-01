@@ -2,62 +2,70 @@ use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
-// Generous, since real mutating actions here (secedit, IIS site
-// creation) can legitimately take a while, but nothing should be able
-// to hang the app indefinitely, same reasoning as system_checks.rs's
-// POWERSHELL_TIMEOUT (which caught a real DISM hang on a cold VM).
+// Generous: real mutating actions here (secedit, and especially
+// configure_iis_site provisioning 14 web apps, since each
+// WebAdministration cmdlet call is slow) can legitimately take
+// several minutes, but nothing should be able to hang the app
+// indefinitely. Every command in this file also runs its blocking work
+// via tauri::async_runtime::spawn_blocking rather than on the command
+// dispatch thread directly, so even hitting this timeout doesn't freeze
+// the UI while waiting, unlike the freeze this was found from.
 #[cfg(target_os = "windows")]
-const POWERSHELL_TIMEOUT: Duration = Duration::from_secs(120);
+const POWERSHELL_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Writes the install log to the current user's Desktop and returns the
 /// full path. Content is passed over stdin rather than embedded in the
 /// PowerShell script string, so arbitrary log text (quotes, newlines)
 /// can't break out of the script.
 #[tauri::command]
-pub fn write_install_log(contents: String) -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::io::Write;
-        use std::process::Stdio;
+pub async fn write_install_log(contents: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            use std::io::Write;
+            use std::process::Stdio;
 
-        let script = r#"
+            let script = r#"
 $content = [Console]::In.ReadToEnd()
 $desktop = [Environment]::GetFolderPath('Desktop')
 $path = Join-Path $desktop ("K2-Setup-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd-HHmm'))
 Set-Content -LiteralPath $path -Value $content -Encoding UTF8
 $path
 "#;
-        let mut child = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
+            let mut child = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to launch PowerShell: {e}"))?;
 
-        child
-            .stdin
-            .take()
-            .ok_or("Failed to open PowerShell stdin")?
-            .write_all(contents.as_bytes())
-            .map_err(|e| format!("Failed to write log content: {e}"))?;
+            child
+                .stdin
+                .take()
+                .ok_or("Failed to open PowerShell stdin")?
+                .write_all(contents.as_bytes())
+                .map_err(|e| format!("Failed to write log content: {e}"))?;
 
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("Failed to wait for PowerShell: {e}"))?;
+            let output = child
+                .wait_with_output()
+                .map_err(|e| format!("Failed to wait for PowerShell: {e}"))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(if stderr.is_empty() { stdout } else { stderr });
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Err(if stderr.is_empty() { stdout } else { stderr });
+            }
+            Ok(stdout)
         }
-        Ok(stdout)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = contents;
-        Err("Writing the install log requires Windows".to_string())
-    }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = contents;
+            Err("Writing the install log requires Windows".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 #[cfg(target_os = "windows")]
@@ -127,13 +135,14 @@ const K2_WEB_APPS: &[&str] = &[
 /// Real, but scoped to just this one site name and its own app pools;
 /// removing them is how you undo it.
 #[tauri::command]
-pub fn configure_iis_site(
+pub async fn configure_iis_site(
     site_name: String,
     http_port: String,
     https_port: String,
     app_pool_identity: String,
     certificate_thumbprint: String,
 ) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let identity_value = match app_pool_identity.as_str() {
@@ -202,6 +211,9 @@ if ($httpsPort -gt 0) {{
         let _ = (site_name, http_port, https_port, app_pool_identity, certificate_thumbprint);
         unsupported("Configuring the IIS site")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Mirrors the real legacy SourceCode.Install.Package.Actions.IO.CopyFiles
@@ -224,7 +236,8 @@ if ($httpsPort -gt 0) {{
 /// reports a clean skip rather than failing, since a bare spike install
 /// may not have the real product payload available yet.
 #[tauri::command]
-pub fn copy_k2_files(source_root: String) -> Result<String, String> {
+pub async fn copy_k2_files(source_root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         if source_root.trim().is_empty() {
@@ -279,6 +292,9 @@ if ($totalCopied -eq 0) {{
         let _ = source_root;
         unsupported("Copying K2 files")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Drops a minimal placeholder page into any K2 web app folder that came
@@ -287,7 +303,8 @@ if ($totalCopied -eq 0) {{
 /// real, identifiable page instead of a blank folder listing or 404.
 /// Never overwrites a folder that already has real content in it.
 #[tauri::command]
-pub fn scaffold_k2_placeholder_pages() -> Result<String, String> {
+pub async fn scaffold_k2_placeholder_pages() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let web_apps_list = K2_WEB_APPS.join(",");
@@ -338,6 +355,9 @@ p {{ color: #9aa3c9; margin: 0.4rem 0; }}
     {
         unsupported("Scaffolding K2 placeholder pages")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Removes the K2 site, its own app pool, and every K2 web application
@@ -346,7 +366,8 @@ p {{ color: #9aa3c9; margin: 0.4rem 0; }}
 /// just this one site name and its own app pools, same as
 /// configure_iis_site is scoped when creating them.
 #[tauri::command]
-pub fn remove_iis_site(site_name: String) -> Result<String, String> {
+pub async fn remove_iis_site(site_name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let web_apps_list = K2_WEB_APPS.join(",");
@@ -386,6 +407,9 @@ if (Test-Path "IIS:\AppPools\$site") {{
         let _ = site_name;
         unsupported("Removing the IIS site")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Disables TLS 1.0 and 1.1 for both Client and Server roles via the
@@ -393,7 +417,8 @@ if (Test-Path "IIS:\AppPools\$site") {{
 /// this box, not just K2, and typically needs a reboot to fully take
 /// effect for other already-running services.
 #[tauri::command]
-pub fn disable_legacy_tls() -> Result<String, String> {
+pub async fn disable_legacy_tls() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let script = r#"
@@ -415,13 +440,17 @@ foreach ($protocol in $protocols) {
     {
         unsupported("Disabling TLS 1.0/1.1")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Reverses disable_legacy_tls: re-enables TLS 1.0 and 1.1 for both
 /// Client and Server roles via the same Schannel registry keys.
 /// Machine-wide, same caveat as the original action.
 #[tauri::command]
-pub fn restore_legacy_tls() -> Result<String, String> {
+pub async fn restore_legacy_tls() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let script = r#"
@@ -443,6 +472,9 @@ foreach ($protocol in $protocols) {
     {
         unsupported("Restoring TLS 1.0/1.1")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Grants the given account the "Log on as a service" local security
@@ -451,7 +483,8 @@ foreach ($protocol in $protocols) {
 /// user rights assignment). Scoped to just this one right for this one
 /// account; removing the account from that policy undoes it.
 #[tauri::command]
-pub fn grant_service_logon_right(account: String) -> Result<String, String> {
+pub async fn grant_service_logon_right(account: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let script = format!(
@@ -488,6 +521,9 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
         let _ = account;
         unsupported("Granting the service logon right")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Reverses grant_service_logon_right: removes the given account's SID
@@ -495,7 +531,8 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
 /// same secedit export/edit/import round-trip. Leaves the right intact
 /// for any other accounts already granted it.
 #[tauri::command]
-pub fn revoke_service_logon_right(account: String) -> Result<String, String> {
+pub async fn revoke_service_logon_right(account: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let script = format!(
@@ -530,4 +567,7 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
         let _ = account;
         unsupported("Revoking the service logon right")
     }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }

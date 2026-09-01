@@ -174,18 +174,22 @@ fn dotnet_runner_path() -> PathBuf {
 }
 
 #[tauri::command]
-pub fn run_dotnet(input: String) -> Result<String, String> {
-    let runner = dotnet_runner_path();
-    let output = Command::new(runner)
-        .arg(input)
-        .output()
-        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+pub async fn run_dotnet(input: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let runner = dotnet_runner_path();
+        let output = Command::new(runner)
+            .arg(input)
+            .output()
+            .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Characters SQLSvrPanel.HasInvalidChars() rejected in a database name.
@@ -226,7 +230,7 @@ fn validate_sql_fields(auth_mode: &str, username: &str, password: &str, database
 /// if missing), via `SourceCode.SetupManager`'s reference architecture:
 /// Rust spawns the .NET Framework helper and captures its stdout/stderr.
 #[tauri::command]
-pub fn test_sql_connection(
+pub async fn test_sql_connection(
     instance: String,
     auth_mode: String,
     username: String,
@@ -235,23 +239,27 @@ pub fn test_sql_connection(
 ) -> Result<String, String> {
     validate_sql_fields(&auth_mode, &username, &password, &database)?;
 
-    let runner = dotnet_runner_path();
-    let output = Command::new(runner)
-        .args(["test-sql", &instance, &auth_mode, &username, &password, &database])
-        .output()
-        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runner = dotnet_runner_path();
+        let output = Command::new(runner)
+            .args(["test-sql", &instance, &auth_mode, &username, &password, &database])
+            .output()
+            .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Drops the K2 database, reversing test_sql_connection's database
 /// creation. Same DotNetRunner spawn pattern, just a different command.
 #[tauri::command]
-pub fn drop_k2_database(
+pub async fn drop_k2_database(
     instance: String,
     auth_mode: String,
     username: String,
@@ -260,17 +268,21 @@ pub fn drop_k2_database(
 ) -> Result<String, String> {
     validate_sql_fields(&auth_mode, &username, &password, &database)?;
 
-    let runner = dotnet_runner_path();
-    let output = Command::new(runner)
-        .args(["drop-database", &instance, &auth_mode, &username, &password, &database])
-        .output()
-        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runner = dotnet_runner_path();
+        let output = Command::new(runner)
+            .args(["drop-database", &instance, &auth_mode, &username, &password, &database])
+            .output()
+            .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
 
 /// Looks up the K2 service account and administrators group in Active
@@ -280,7 +292,7 @@ pub fn drop_k2_database(
 /// customer AD is a separate, explicit action this spike doesn't take
 /// silently on a wizard step's Next click.
 #[tauri::command]
-pub fn check_ad_objects(
+pub async fn check_ad_objects(
     service_account: String,
     admins_group: String,
     create_group_if_missing: bool,
@@ -292,16 +304,20 @@ pub fn check_ad_objects(
         return Err("K2 administrators group cannot be empty.".to_string());
     }
 
-    let runner = dotnet_runner_path();
-    let create_flag = if create_group_if_missing { "true" } else { "false" };
-    let output = Command::new(runner)
-        .args(["ad-check", &service_account, &admins_group, create_flag])
-        .output()
-        .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runner = dotnet_runner_path();
+        let create_flag = if create_group_if_missing { "true" } else { "false" };
+        let output = Command::new(runner)
+            .args(["ad-check", &service_account, &admins_group, create_flag])
+            .output()
+            .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
 }
