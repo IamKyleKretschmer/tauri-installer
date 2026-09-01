@@ -12,10 +12,12 @@ interface InstallTask {
 }
 
 const TASKS: InstallTask[] = [
+  { id: "download", label: "Downloading K2 installation package", subLabel: "Fetching product build" },
+  { id: "extract", label: "Extracting installation package", subLabel: "Unpacking to build folder" },
   { id: "db", label: "Creating K2 database", subLabel: "Applying collation and schema" },
   { id: "iis", label: "Configuring IIS site & app pool", subLabel: "Binding ports 80/443" },
   { id: "tls", label: "Disabling TLS 1.0 / 1.1", subLabel: "Updating Schannel registry keys" },
-  { id: "components", label: "Installing K2 Server components", subLabel: "Registering K2 Windows services" },
+  { id: "components", label: "Installing K2 Server components", subLabel: "Running SourceCode.SetupManager.exe /install" },
   { id: "ad", label: "Configuring AD service account", subLabel: "Granting local service rights" },
   { id: "start", label: "Starting K2 services", subLabel: "Waiting for services to report healthy" },
 ];
