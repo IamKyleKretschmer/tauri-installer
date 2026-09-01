@@ -251,6 +251,65 @@ if ($totalCopied -eq 0) {{
     }
 }
 
+/// Drops a minimal placeholder page into any K2 web app folder that came
+/// out of copy_k2_files still empty (no real K2 payload was available),
+/// so that browsing to that app's IIS URL after install resolves to a
+/// real, identifiable page instead of a blank folder listing or 404.
+/// Never overwrites a folder that already has real content in it.
+#[tauri::command]
+pub fn scaffold_k2_placeholder_pages() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let web_apps_list = K2_WEB_APPS.join(",");
+
+        let script = format!(
+            r#"
+$webRoot = "$env:ProgramFiles\K2\WebServices"
+$webApps = '{web_apps_list}' -split ','
+$scaffolded = 0
+
+foreach ($app in $webApps) {{
+    $dir = Join-Path $webRoot $app
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $hasFiles = (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
+    if (-not $hasFiles) {{
+        $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+<title>K2 $app</title>
+<style>
+body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0a0e27; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+.card {{ background: #141a3d; border: 1px solid #2f5fdb; border-radius: 12px; padding: 2.5rem 3rem; text-align: center; max-width: 420px; }}
+h1 {{ color: #ff6a3d; margin: 0 0 0.5rem; }}
+p {{ color: #9aa3c9; margin: 0.4rem 0; }}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>K2 $app</h1>
+<p>This is a placeholder page deployed by the K2 Setup POC installer.</p>
+<p>Real K2 $app content was not provided for this install.</p>
+</div>
+</body>
+</html>
+"@
+        Set-Content -LiteralPath (Join-Path $dir "Default.htm") -Value $html -Encoding UTF8
+        $scaffolded++
+    }}
+}}
+
+"Scaffolded placeholder pages for $scaffolded of $($webApps.Count) K2 web application(s)"
+"#
+        );
+        run_powershell(&script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Scaffolding K2 placeholder pages")
+    }
+}
+
 /// Disables TLS 1.0 and 1.1 for both Client and Server roles via the
 /// Schannel registry keys. Machine-wide: affects every app/service on
 /// this box, not just K2, and typically needs a reboot to fully take

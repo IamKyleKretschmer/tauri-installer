@@ -290,6 +290,32 @@ export async function copyK2Files(sourceRoot: string): Promise<ActionResult> {
   }
 }
 
+/**
+ * Drops a minimal placeholder page into any K2 web app folder still
+ * empty after copyK2Files (real content, when provided, is never
+ * overwritten), so every K2 web app URL resolves to a real page after
+ * install rather than a blank folder or 404.
+ */
+export async function scaffoldK2PlaceholderPages(): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.scaffoldK2PlaceholderPages();
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Copies any real K2 files provided, then scaffolds placeholders for whatever's still empty. */
+export async function deployK2Payload(sourceRoot: string): Promise<ActionResult> {
+  const copyResult = await copyK2Files(sourceRoot);
+  if (!copyResult.success) return copyResult;
+
+  const scaffoldResult = await scaffoldK2PlaceholderPages();
+  if (!scaffoldResult.success) return scaffoldResult;
+
+  return { success: true, message: `${copyResult.message}. ${scaffoldResult.message}.` };
+}
+
 /** Disables TLS 1.0/1.1 machine-wide via the Schannel registry keys. */
 export async function disableLegacyTls(): Promise<ActionResult> {
   try {

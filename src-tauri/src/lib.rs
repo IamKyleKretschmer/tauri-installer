@@ -33,6 +33,7 @@ pub fn run() {
             system_checks::get_machine_fqdn,
             system_actions::configure_iis_site,
             system_actions::copy_k2_files,
+            system_actions::scaffold_k2_placeholder_pages,
             system_actions::disable_legacy_tls,
             system_actions::grant_service_logon_right,
             system_actions::write_install_log,

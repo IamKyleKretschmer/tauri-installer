@@ -3,7 +3,7 @@ import type { SqlServerConfig } from "./SqlServerStep";
 import type { IisNetConfig } from "./IisNetStep";
 import type { FinishedSummary } from "./FinishedStep";
 import type { PrerequisiteItem, ProductInfo } from "../services/installer.service";
-import { configureIisSite, copyK2Files, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
+import { configureIisSite, deployK2Payload, disableLegacyTls, grantServiceLogonRight, testSqlConnection } from "../services/installer.service";
 
 interface InstallTask {
   id: string;
@@ -140,7 +140,7 @@ export function InstallStep({
         });
       },
       tls: () => disableLegacyTls(),
-      components: () => copyK2Files(iisConfigRef.current.sourceFilesPath),
+      components: () => deployK2Payload(iisConfigRef.current.sourceFilesPath),
       ad: () => grantServiceLogonRight(adServiceAccountRef.current),
     };
 
