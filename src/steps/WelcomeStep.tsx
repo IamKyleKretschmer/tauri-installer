@@ -1,4 +1,11 @@
+import { Select } from "../components/primitives";
 import type { LoadState, ProductInfo } from "../services/installer.service";
+
+// Mirrors the version choices AutomateK2Install_v4.7.ps1 offers when
+// picking a build to download (K2 Five 5.6, 5.9.1, 5.10, ...). POC only:
+// this just changes the displayed version and install-log text, it does
+// not fetch or install a different real payload.
+export const AVAILABLE_VERSIONS = ["5.10", "5.9.1", "5.6"];
 
 const WILL_DO = [
   "Check your hardware and OS compatibility",
@@ -12,9 +19,13 @@ const WILL_DO = [
 export function WelcomeStep({
   product,
   installedVersion,
+  selectedVersion,
+  onVersionChange,
 }: {
   product: LoadState<ProductInfo>;
   installedVersion: LoadState<string | null>;
+  selectedVersion: string;
+  onVersionChange: (version: string) => void;
 }) {
   const installedLabel =
     installedVersion.status === "loading"
@@ -28,6 +39,8 @@ export function WelcomeStep({
     if (product.status === "error") return "Unavailable (run via npm run tauri dev)";
     return pick(product.value);
   };
+
+  const productName = product.status === "ready" ? product.value.name : "K2 Five";
 
   return (
     <div>
@@ -44,7 +57,20 @@ export function WelcomeStep({
         </div>
         <div className="info-card">
           <h3>Installing version</h3>
-          <p>{productLabel((info) => info.fullVersion)}</p>
+          {product.status === "ready" ? (
+            <Select
+              value={selectedVersion}
+              onChange={(e) => onVersionChange(e.target.value)}
+            >
+              {AVAILABLE_VERSIONS.map((v) => (
+                <option key={v} value={v}>
+                  {productName} {v}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <p>{productLabel((info) => info.fullVersion)}</p>
+          )}
         </div>
         <div className="info-card">
           <h3>Install type</h3>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Sidebar, STEPS } from "./components/Sidebar";
 import { WizardShell } from "./components/WizardShell";
-import { WelcomeStep } from "./steps/WelcomeStep";
+import { WelcomeStep, AVAILABLE_VERSIONS } from "./steps/WelcomeStep";
 import { MaintenanceStep } from "./steps/MaintenanceStep";
 import type { MaintenanceAction } from "./steps/MaintenanceStep";
 import { Button } from "./components/primitives";
@@ -149,6 +149,13 @@ function App() {
   // the one-time registry scan for the installed version only runs once.
   const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
   const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
+  const [selectedVersion, setSelectedVersion] = useState(AVAILABLE_VERSIONS[0]);
+  // Downstream steps (install log, finished summary) should reflect the
+  // version chosen on the Welcome step, not just the build's baked-in one.
+  const effectiveProduct: ProductInfo | null =
+    product.status === "ready"
+      ? { ...product.value, version: selectedVersion, fullVersion: `${product.value.name} ${selectedVersion}` }
+      : null;
 
   // Mirrors the legacy installer's /output:bp.xml and /install:bp.xml
   // command-line switches: write an answer file instead of installing,
@@ -267,7 +274,14 @@ function App() {
 
   switch (step) {
     case "welcome":
-      body = <WelcomeStep product={product} installedVersion={installedVersion} />;
+      body = (
+        <WelcomeStep
+          product={product}
+          installedVersion={installedVersion}
+          selectedVersion={selectedVersion}
+          onVersionChange={setSelectedVersion}
+        />
+      );
       // Keep Next disabled until both the target version/install type and
       // the currently-installed check have resolved (success or failure).
       nextDisabled = product.status === "loading" || installedVersion.status === "loading";
@@ -390,7 +404,7 @@ function App() {
             sqlConfig={sqlConfig}
             iisConfig={iisConfig}
             adServiceAccount={adConfig.serviceAccount}
-            product={product.status === "ready" ? product.value : null}
+            product={effectiveProduct}
             prerequisiteItems={prerequisiteItems}
             hostname={networkConfig.hostname}
             stepCount={STEPS.length}
@@ -454,7 +468,7 @@ function App() {
                 sqlConfig={sqlConfig}
                 iisConfig={iisConfig}
                 adServiceAccount={adConfig.serviceAccount}
-                product={product.status === "ready" ? product.value : null}
+                product={effectiveProduct}
                 prerequisiteItems={null}
                 hostname={networkConfig.hostname}
                 stepCount={STEPS.length}
