@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Banner, Select, TextInput } from "../components/primitives";
 import type { ActionResult, IisChecks } from "../services/installer.service";
-import { getIisChecks } from "../services/installer.service";
+import { findK2InstallationFolder, getIisChecks } from "../services/installer.service";
 
 export interface IisNetConfig {
   siteName: string;
@@ -35,6 +35,13 @@ export function IisNetStep({
     getIisChecks().then((result) => {
       setChecks(result);
       onLoaded(result);
+    });
+    // Looks for an already-extracted real K2 build (e.g. on the Desktop
+    // or in Downloads) so the operator never has to type its path in -
+    // silently does nothing if none is found, since most environments
+    // won't have one and should keep working exactly as before.
+    findK2InstallationFolder().then((path) => {
+      if (path) update({ installationFolder: path });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -132,13 +139,9 @@ export function IisNetStep({
         onChange={(e) => update({ packageSource: e.target.value })}
       />
 
-      <TextInput
-        label="Real K2 installation folder (optional)"
-        hint={String.raw`An already-extracted K2 build's "Installation" folder that contains SourceCode.SetupManager.exe or Setup.exe (e.g. C:\...\Nintex Automation K2 (5.10) (...)\Installation). If set, the Install step will run the REAL installer against a generated silent-install answer file instead of simulating or copying files. Requires a valid license key entered on the Review step.`}
-        placeholder={String.raw`C:\Users\you\Desktop\Nintex Automation K2 (5.10) (5.0011.1000.0)\Installation`}
-        value={local.installationFolder}
-        onChange={(e) => update({ installationFolder: e.target.value })}
-      />
+      {local.installationFolder && (
+        <div className="callout callout--info">Found real K2 installer at {local.installationFolder} - the Install step will run it directly.</div>
+      )}
 
       <TextInput
         label="K2 source files folder (optional)"

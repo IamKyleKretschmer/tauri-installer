@@ -385,6 +385,20 @@ export async function getMachineKey(installationFolder: string): Promise<ActionR
   }
 }
 
+/**
+ * Looks for a real, already-extracted K2 installation folder in common
+ * locations (Desktop, Downloads) so the operator doesn't have to type its
+ * path in manually. Returns null (not an error) when nothing is found -
+ * that's the expected case on most machines.
+ */
+export async function findK2InstallationFolder(): Promise<string | null> {
+  try {
+    return await tauriBridge.findK2InstallationFolder();
+  } catch {
+    return null;
+  }
+}
+
 function splitPathAndMessage(raw: string): [string, string] {
   const separatorIndex = raw.indexOf("|");
   return separatorIndex === -1 ? [raw, raw] : [raw.slice(0, separatorIndex), raw.slice(separatorIndex + 1)];

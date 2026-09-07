@@ -809,3 +809,61 @@ pub async fn get_machine_key(installation_folder: String) -> Result<String, Stri
     .await
     .map_err(|e| format!("Background task failed: {e}"))?
 }
+
+/// Looks for a real, already-extracted K2 build so the operator doesn't
+/// have to type its path in - searches the current user's Desktop and
+/// Downloads folders (where a manually-downloaded/extracted build like
+/// "Nintex Automation K2 (5.10) (...)\Installation" typically lands),
+/// a few levels deep, for a folder containing SourceCode.SetupManager.exe
+/// or Setup.exe. Returns the first match, or None if nothing is found -
+/// that's the normal case on most machines, not an error.
+#[cfg(target_os = "windows")]
+fn search_for_setup_exe(dir: &std::path::Path, remaining_depth: u32) -> Option<PathBuf> {
+    if remaining_depth == 0 {
+        return None;
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut subdirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if path.join("SourceCode.SetupManager.exe").is_file() || path.join("Setup.exe").is_file() {
+            return Some(path);
+        }
+        subdirs.push(path);
+    }
+    for subdir in subdirs {
+        if let Some(found) = search_for_setup_exe(&subdir, remaining_depth - 1) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+pub async fn find_installation_folder() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let Some(home) = std::env::var_os("USERPROFILE") else {
+                return Ok(None);
+            };
+            let home = PathBuf::from(home);
+
+            for root in [home.join("Desktop"), home.join("Downloads")] {
+                if let Some(found) = search_for_setup_exe(&root, 4) {
+                    return Ok(Some(found.to_string_lossy().to_string()));
+                }
+            }
+            Ok(None)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}

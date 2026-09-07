@@ -99,8 +99,6 @@ const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
   servicePassword: "",
   adminsGroup: "CONTOSO\\K2Admins",
   createGroupIfMissing: true,
-  jsspServiceAccount: "",
-  jsspPassword: "",
 };
 
 const DEFAULT_NETWORK_CONFIG: NetworkTlsConfig = {
@@ -422,8 +420,6 @@ function App() {
             iisConfig={iisConfig}
             adServiceAccount={adConfig.serviceAccount}
             adServicePassword={adConfig.servicePassword}
-            adJsspServiceAccount={adConfig.jsspServiceAccount}
-            adJsspPassword={adConfig.jsspPassword}
             licenseKey={licenseKey}
             machineKey={machineKey}
             product={effectiveProduct}
@@ -491,8 +487,6 @@ function App() {
                 iisConfig={iisConfig}
                 adServiceAccount={adConfig.serviceAccount}
                 adServicePassword={adConfig.servicePassword}
-            adJsspServiceAccount={adConfig.jsspServiceAccount}
-            adJsspPassword={adConfig.jsspPassword}
                 licenseKey=""
                 machineKey=""
                 product={effectiveProduct}

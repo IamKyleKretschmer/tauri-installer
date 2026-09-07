@@ -41,8 +41,6 @@ export function InstallStep({
   iisConfig,
   adServiceAccount,
   adServicePassword,
-  adJsspServiceAccount,
-  adJsspPassword,
   licenseKey,
   machineKey,
   product,
@@ -55,8 +53,6 @@ export function InstallStep({
   iisConfig: IisNetConfig;
   adServiceAccount: string;
   adServicePassword: string;
-  adJsspServiceAccount: string;
-  adJsspPassword: string;
   licenseKey: string;
   machineKey: string;
   product: ProductInfo | null;
@@ -80,8 +76,6 @@ export function InstallStep({
   const iisConfigRef = useRef(iisConfig);
   const adServiceAccountRef = useRef(adServiceAccount);
   const adServicePasswordRef = useRef(adServicePassword);
-  const adJsspServiceAccountRef = useRef(adJsspServiceAccount);
-  const adJsspPasswordRef = useRef(adJsspPassword);
   const licenseKeyRef = useRef(licenseKey);
   const machineKeyRef = useRef(machineKey);
   const productRef = useRef(product);
@@ -93,8 +87,6 @@ export function InstallStep({
     iisConfigRef.current = iisConfig;
     adServiceAccountRef.current = adServiceAccount;
     adServicePasswordRef.current = adServicePassword;
-    adJsspServiceAccountRef.current = adJsspServiceAccount;
-    adJsspPasswordRef.current = adJsspPassword;
     licenseKeyRef.current = licenseKey;
     machineKeyRef.current = machineKey;
     productRef.current = product;
@@ -106,8 +98,6 @@ export function InstallStep({
     iisConfig,
     adServiceAccount,
     adServicePassword,
-    adJsspServiceAccount,
-    adJsspPassword,
     licenseKey,
     machineKey,
     product,
@@ -243,8 +233,6 @@ export function InstallStep({
             servicePassword: adServicePasswordRef.current,
             adminsGroup: "",
             createGroupIfMissing: false,
-            jsspServiceAccount: adJsspServiceAccountRef.current,
-            jsspPassword: adJsspPasswordRef.current,
           },
           networkConfig: { hostname: hostnameRef.current },
           productVersion: productRef.current?.version ?? "",

@@ -8,8 +8,6 @@ export interface ActiveDirectoryConfig {
   servicePassword: string;
   adminsGroup: string;
   createGroupIfMissing: boolean;
-  jsspServiceAccount: string;
-  jsspPassword: string;
 }
 
 export function ActiveDirectoryStep({
@@ -65,21 +63,6 @@ export function ActiveDirectoryStep({
         placeholder="Enter service account password"
         value={local.servicePassword}
         onChange={(e) => update({ servicePassword: e.target.value })}
-      />
-
-      <TextInput
-        label="JSSP (JavaScript Service Provider) account (optional)"
-        hint="A separate, low-privileged domain account for the JSSP service - K2's installer validates this must be a low-trust account, so it will reject a domain admin or other privileged account here (including reusing the K2 service account above, if that account has elevated rights). Leave blank to reuse the K2 service account above."
-        value={local.jsspServiceAccount}
-        onChange={(e) => update({ jsspServiceAccount: e.target.value })}
-      />
-
-      <TextInput
-        label="JSSP account password"
-        type="password"
-        placeholder="Enter JSSP account password"
-        value={local.jsspPassword}
-        onChange={(e) => update({ jsspPassword: e.target.value })}
       />
 
       <TextInput
