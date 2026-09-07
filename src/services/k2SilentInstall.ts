@@ -52,8 +52,58 @@ function connectionString(sqlConfig: SqlServerConfig): string {
 /** Real component set for a full K2 Five server install, matching the real captured answer file. */
 const COMPONENTS = ["CORE", "DATABASE", "CFG", "JSSERVICEPROVIDER", "SERVER", "PDF", "WORKSPACE", "NSA", "CLIENT_PD"];
 
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+/**
+ * Deterministically stretches/truncates an existing string (the machine
+ * key) into exactly `length` bytes, repeating it as needed. Used so that
+ * entering the same machine key on every run also reproduces the same
+ * Rijndael key/IV, keeping a reused database's encrypted contents
+ * decryptable across attempts instead of only the machine key matching.
+ */
+function deriveBytesFromString(source: string, length: number): Uint8Array {
+  const encoded = new TextEncoder().encode(source);
+  const out = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    out[i] = encoded[i % encoded.length];
+  }
+  return out;
+}
+
 export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
   const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey } = config;
+
+  // A blank/missing encryption key set is what SetupManager's
+  // "EncryptionValidation: Unable to validate encryption" actually turns
+  // out to mean (confirmed by it failing identically against a freshly
+  // created, never-before-touched database) - it needs real key material
+  // to even construct an encryption context, not just consistent key
+  // material across runs. A real captured answer file's RIJNDAEL_KEY/IV
+  // are 32/16 random bytes, base64-encoded; MACHINEKEY is 8 random bytes,
+  // hex-encoded. When a machine key is supplied (for reusing a database
+  // across attempts, see InstallStep's drop-database logic), everything
+  // is derived from it so the same input reproduces the same keys; when
+  // it's blank, everything is freshly randomized every run.
+  const effectiveMachineKey = machineKey.trim() || bytesToHex(randomBytes(8));
+  const rijndaelKey = bytesToBase64(
+    machineKey.trim() ? deriveBytesFromString(machineKey.trim(), 32) : randomBytes(32),
+  );
+  const rijndaelIv = bytesToBase64(machineKey.trim() ? deriveBytesFromString(machineKey.trim(), 16) : randomBytes(16));
 
   const dbConnectionString = connectionString(sqlConfig);
   const dbName = sqlConfig.databaseName || "K2";
@@ -74,7 +124,9 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["LICENSETYPE", "PRODUCTION"],
     ["LICENSEDPRODUCT", "K2FIVE"],
     ["LICENSEKEY", licenseKey],
-    ["MACHINEKEY", machineKey],
+    ["MACHINEKEY", effectiveMachineKey],
+    ["RIJNDAEL_KEY", rijndaelKey],
+    ["RIJNDAEL_IV", rijndaelIv],
     ["HOSTSERVERNAME", "LOCALHOST"],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
