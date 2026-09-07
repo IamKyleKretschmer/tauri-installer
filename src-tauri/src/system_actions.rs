@@ -667,22 +667,27 @@ pub async fn extract_k2_package(archive_path: String) -> Result<String, String> 
 #[cfg(target_os = "windows")]
 const INSTALLER_TIMEOUT: Duration = Duration::from_secs(1800);
 
+#[cfg(target_os = "windows")]
+fn find_setup_exe(folder: &std::path::Path) -> Result<PathBuf, String> {
+    ["SourceCode.SetupManager.exe", "Setup.exe"]
+        .iter()
+        .map(|name| folder.join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            format!(
+                "Neither SourceCode.SetupManager.exe nor Setup.exe was found in {}",
+                folder.display()
+            )
+        })
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
             let folder = PathBuf::from(&installation_folder);
-            let exe_path = ["SourceCode.SetupManager.exe", "Setup.exe"]
-                .iter()
-                .map(|name| folder.join(name))
-                .find(|path| path.is_file())
-                .ok_or_else(|| {
-                    format!(
-                        "Neither SourceCode.SetupManager.exe nor Setup.exe was found in {}",
-                        folder.display()
-                    )
-                })?;
+            let exe_path = find_setup_exe(&folder)?;
 
             let xml_path = std::env::temp_dir().join("k2-silent-install.xml");
             std::fs::write(&xml_path, &silent_xml_contents)
@@ -734,6 +739,71 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
         {
             let _ = (installation_folder, silent_xml_contents);
             unsupported("Running the real K2 installer")
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}
+
+/// Real machine-key retrieval, standing in for AutomateK2Install_v4.7.ps1's
+/// Get-MachineKey (`&.\SourceCode.SetupManager.exe /noui /systemkey`).
+/// Run from the same real installation_folder used for run_real_installer,
+/// so the wizard never needs the operator to run this by hand and paste
+/// the result in - this can just be run fresh on whatever machine is
+/// actually doing the install.
+#[cfg(target_os = "windows")]
+const SYSTEMKEY_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[tauri::command]
+pub async fn get_machine_key(installation_folder: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let folder = PathBuf::from(&installation_folder);
+            let exe_path = find_setup_exe(&folder)?;
+
+            let mut child = Command::new(&exe_path)
+                .current_dir(&folder)
+                .args(["/noui", "/systemkey"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
+
+            let deadline = Instant::now() + SYSTEMKEY_TIMEOUT;
+            loop {
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("Timed out after {}s waiting for /systemkey", SYSTEMKEY_TIMEOUT.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(150));
+            }
+
+            let output = child.wait_with_output().map_err(|e| format!("Failed to wait for {}: {e}", exe_path.display()))?;
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+            if !output.status.success() {
+                let detail = if stderr.is_empty() { stdout } else { stderr };
+                return Err(format!("{} exited with {}: {detail}", exe_path.display(), output.status));
+            }
+            if stdout.is_empty() {
+                return Err(format!(
+                    "{} produced no output for /noui /systemkey - this build may use a different switch, or may need to run elevated",
+                    exe_path.display()
+                ));
+            }
+
+            Ok(stdout)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = installation_folder;
+            unsupported("Retrieving the machine key")
         }
     })
     .await

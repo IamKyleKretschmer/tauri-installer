@@ -46,6 +46,7 @@ pub fn run() {
             system_actions::download_k2_package,
             system_actions::extract_k2_package,
             system_actions::run_real_installer,
+            system_actions::get_machine_key,
             blueprint::get_launch_args,
             blueprint::write_text_file,
             blueprint::read_text_file,

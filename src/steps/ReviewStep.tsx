@@ -1,10 +1,11 @@
+import { useState } from "react";
 import type { SqlServerConfig } from "./SqlServerStep";
 import type { IisNetConfig } from "./IisNetStep";
 import type { ActiveDirectoryConfig } from "./ActiveDirectoryStep";
 import type { NetworkTlsConfig } from "./NetworkTlsStep";
 import type { ActionResult, CertificateInfo, CheckResult, NetworkChecks } from "../services/installer.service";
-import { getReviewChecklist } from "../services/installer.service";
-import { TextInput } from "../components/primitives";
+import { getMachineKey, getReviewChecklist } from "../services/installer.service";
+import { Button, TextInput } from "../components/primitives";
 
 function ReviewCard({ title, rows }: { title: string; rows: [string, string][] }) {
   return (
@@ -65,6 +66,21 @@ export function ReviewStep({
   });
   const allPass = checklist.every((item) => item.pass);
 
+  const [retrievingMachineKey, setRetrievingMachineKey] = useState(false);
+  const [machineKeyError, setMachineKeyError] = useState<string | null>(null);
+
+  async function retrieveMachineKey() {
+    setRetrievingMachineKey(true);
+    setMachineKeyError(null);
+    const result = await getMachineKey(iisConfig.installationFolder);
+    setRetrievingMachineKey(false);
+    if (result.success) {
+      onMachineKeyChange(result.message);
+    } else {
+      setMachineKeyError(result.message);
+    }
+  }
+
   return (
     <div>
       <h1 className="step-title step-title--sm">Review &amp; confirm</h1>
@@ -107,17 +123,23 @@ export function ReviewStep({
             onChange={(e) => onLicenseKeyChange(e.target.value)}
           />
 
-          <TextInput
-            label="Machine key (optional)"
-            hint={
-              'Retrieved via ".\\Setup.exe /noui /systemkey" on this machine. If set, this exact key is reused on every ' +
-              "real install run, so the K2 database's encrypted contents stay decryptable across attempts and the database " +
-              "is reused instead of dropped and recreated. Leave blank to keep the current behavior: a fresh key is " +
-              "generated each run and the database is dropped first so it doesn't conflict with the previous run's key."
-            }
-            value={machineKey}
-            onChange={(e) => onMachineKeyChange(e.target.value)}
-          />
+          <div className="field-row" style={{ alignItems: "flex-end" }}>
+            <TextInput
+              label="Machine key (optional)"
+              hint={
+                'Retrieved via ".\\Setup.exe /noui /systemkey" against the installation folder above. If set, this exact ' +
+                "key is reused on every real install run, so the K2 database's encrypted contents stay decryptable across " +
+                "attempts and the database is reused instead of dropped and recreated. Leave blank to keep the current " +
+                "behavior: a fresh key is generated each run and the database is dropped first."
+              }
+              value={machineKey}
+              onChange={(e) => onMachineKeyChange(e.target.value)}
+            />
+            <Button onClick={retrieveMachineKey} disabled={retrievingMachineKey}>
+              {retrievingMachineKey ? "Retrieving..." : "Retrieve automatically"}
+            </Button>
+          </div>
+          {machineKeyError && <div className="callout callout--warn">{machineKeyError}</div>}
         </div>
       )}
 

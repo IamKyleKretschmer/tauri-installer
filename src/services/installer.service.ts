@@ -369,6 +369,22 @@ export async function runRealInstaller(installationFolder: string, silentXmlCont
   }
 }
 
+/**
+ * Real machine-key retrieval: actually runs the installer's own
+ * `/noui /systemkey` switch, standing in for Get-MachineKey's
+ * `&.\SourceCode.SetupManager.exe /noui /systemkey`. Works on whatever
+ * machine has a real installationFolder configured, so the operator
+ * never has to run this by hand and copy-paste the result in.
+ */
+export async function getMachineKey(installationFolder: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.getMachineKey(installationFolder);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function splitPathAndMessage(raw: string): [string, string] {
   const separatorIndex = raw.indexOf("|");
   return separatorIndex === -1 ? [raw, raw] : [raw.slice(0, separatorIndex), raw.slice(separatorIndex + 1)];
