@@ -655,3 +655,87 @@ pub async fn extract_k2_package(archive_path: String) -> Result<String, String> 
     .await
     .map_err(|e| format!("Background task failed: {e}"))?
 }
+
+/// Real installer invocation, standing in for AutomateK2Install_v4.7.ps1's
+/// Initialize-Install (`.\SourceCode.SetupManager.exe /install:"$_silentXml"
+/// /noval`) / Initialize-Install47 (`.\Setup.exe /install:"$_pearl"`).
+/// installation_folder must be a real, already-extracted K2 build's
+/// "Installation" folder (containing one of those two exe names);
+/// silent_xml_contents is the answer file this run writes to a temp file
+/// and passes via /install:<path>. Generous timeout since a real K2
+/// install genuinely can take upwards of 20-30 minutes.
+#[cfg(target_os = "windows")]
+const INSTALLER_TIMEOUT: Duration = Duration::from_secs(1800);
+
+#[tauri::command]
+pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let folder = PathBuf::from(&installation_folder);
+            let exe_path = ["SourceCode.SetupManager.exe", "Setup.exe"]
+                .iter()
+                .map(|name| folder.join(name))
+                .find(|path| path.is_file())
+                .ok_or_else(|| {
+                    format!(
+                        "Neither SourceCode.SetupManager.exe nor Setup.exe was found in {}",
+                        folder.display()
+                    )
+                })?;
+
+            let xml_path = std::env::temp_dir().join("k2-silent-install.xml");
+            std::fs::write(&xml_path, &silent_xml_contents)
+                .map_err(|e| format!("Failed to write answer file {}: {e}", xml_path.display()))?;
+
+            let mut child = Command::new(&exe_path)
+                .current_dir(&folder)
+                .arg(format!("/install:{}", xml_path.display()))
+                .arg("/noval")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
+
+            let deadline = Instant::now() + INSTALLER_TIMEOUT;
+            loop {
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "Timed out after {}s waiting for the real installer",
+                        INSTALLER_TIMEOUT.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+
+            let output = child.wait_with_output().map_err(|e| format!("Failed to wait for installer: {e}"))?;
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+            if !output.status.success() {
+                let detail = if stderr.is_empty() { stdout } else { stderr };
+                return Err(format!("Installer exited with {}: {detail}", output.status));
+            }
+
+            Ok(format!(
+                "Ran {} against {} - exited {}. {}",
+                exe_path.display(),
+                xml_path.display(),
+                output.status,
+                if stdout.is_empty() { "(no output)".to_string() } else { stdout }
+            ))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = (installation_folder, silent_xml_contents);
+            unsupported("Running the real K2 installer")
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}

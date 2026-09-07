@@ -10,8 +10,10 @@ import {
   downloadK2Package,
   extractK2Package,
   grantServiceLogonRight,
+  runRealInstaller,
   testSqlConnection,
 } from "../services/installer.service";
+import { buildK2SilentInstallXml } from "../services/k2SilentInstall";
 
 interface InstallTask {
   id: string;
@@ -37,6 +39,8 @@ export function InstallStep({
   sqlConfig,
   iisConfig,
   adServiceAccount,
+  adServicePassword,
+  licenseKey,
   product,
   prerequisiteItems,
   hostname,
@@ -46,6 +50,8 @@ export function InstallStep({
   sqlConfig: SqlServerConfig;
   iisConfig: IisNetConfig;
   adServiceAccount: string;
+  adServicePassword: string;
+  licenseKey: string;
   product: ProductInfo | null;
   prerequisiteItems: PrerequisiteItem[] | null;
   hostname: string;
@@ -66,6 +72,8 @@ export function InstallStep({
   const sqlConfigRef = useRef(sqlConfig);
   const iisConfigRef = useRef(iisConfig);
   const adServiceAccountRef = useRef(adServiceAccount);
+  const adServicePasswordRef = useRef(adServicePassword);
+  const licenseKeyRef = useRef(licenseKey);
   const productRef = useRef(product);
   const prerequisiteItemsRef = useRef(prerequisiteItems);
   const hostnameRef = useRef(hostname);
@@ -74,10 +82,12 @@ export function InstallStep({
     sqlConfigRef.current = sqlConfig;
     iisConfigRef.current = iisConfig;
     adServiceAccountRef.current = adServiceAccount;
+    adServicePasswordRef.current = adServicePassword;
+    licenseKeyRef.current = licenseKey;
     productRef.current = product;
     prerequisiteItemsRef.current = prerequisiteItems;
     hostnameRef.current = hostname;
-  }, [onDone, sqlConfig, iisConfig, adServiceAccount, product, prerequisiteItems, hostname]);
+  }, [onDone, sqlConfig, iisConfig, adServiceAccount, adServicePassword, licenseKey, product, prerequisiteItems, hostname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +185,24 @@ export function InstallStep({
         });
       },
       tls: () => disableLegacyTls(),
-      components: () => deployK2Payload(extractedSourcePath ?? iisConfigRef.current.sourceFilesPath),
+      components: () => {
+        const config = iisConfigRef.current;
+        const installationFolder = config.installationFolder.trim();
+        if (!installationFolder) {
+          // No real, already-extracted "Installation" folder configured -
+          // fall back to the file-copy simulation.
+          return deployK2Payload(config.sourceFilesPath);
+        }
+        const xml = buildK2SilentInstallXml({
+          sqlConfig: sqlConfigRef.current,
+          iisConfig: config,
+          adConfig: { serviceAccount: adServiceAccountRef.current, servicePassword: adServicePasswordRef.current, adminsGroup: "", createGroupIfMissing: false },
+          networkConfig: { hostname: hostnameRef.current },
+          productVersion: productRef.current?.version ?? "",
+          licenseKey: licenseKeyRef.current,
+        });
+        return runRealInstaller(config.installationFolder, xml);
+      },
       ad: () => grantServiceLogonRight(adServiceAccountRef.current),
     };
 

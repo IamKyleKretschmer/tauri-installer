@@ -354,6 +354,21 @@ export async function extractK2Package(archivePath: string): Promise<ExtractResu
   }
 }
 
+/**
+ * Real install invocation: actually launches SourceCode.SetupManager.exe
+ * or Setup.exe from installationFolder with the given silent-install XML
+ * contents, standing in for Initialize-Install's
+ * `.\SourceCode.SetupManager.exe /install:"$_silentXml" /noval`.
+ */
+export async function runRealInstaller(installationFolder: string, silentXmlContents: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.runRealInstaller(installationFolder, silentXmlContents);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function splitPathAndMessage(raw: string): [string, string] {
   const separatorIndex = raw.indexOf("|");
   return separatorIndex === -1 ? [raw, raw] : [raw.slice(0, separatorIndex), raw.slice(separatorIndex + 1)];

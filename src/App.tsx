@@ -91,6 +91,7 @@ const DEFAULT_IIS_CONFIG: IisNetConfig = {
   sslCertificate: "",
   sourceFilesPath: "",
   packageSource: "",
+  installationFolder: "",
 };
 
 const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
@@ -151,6 +152,10 @@ function App() {
   const [product, setProduct] = useState<LoadState<ProductInfo>>({ status: "loading" });
   const [installedVersion, setInstalledVersion] = useState<LoadState<string | null>>({ status: "loading" });
   const [selectedVersion, setSelectedVersion] = useState(AVAILABLE_VERSIONS[0]);
+  // Entered on the Review step, used only for the one real-install run;
+  // never persisted to the blueprint file or written anywhere except the
+  // single temp answer-file the real installer run consumes.
+  const [licenseKey, setLicenseKey] = useState("");
   // Downstream steps (install log, finished summary) should reflect the
   // version chosen on the Welcome step, not just the build's baked-in one.
   const effectiveProduct: ProductInfo | null =
@@ -376,6 +381,8 @@ function App() {
           certificates={iisChecks?.certificates ?? ([] as CertificateInfo[])}
           sqlTestResult={sqlTestResult}
           portTestResult={portTestResult}
+          licenseKey={licenseKey}
+          onLicenseKeyChange={setLicenseKey}
         />
       );
       const checklist = getReviewChecklist({
@@ -405,6 +412,8 @@ function App() {
             sqlConfig={sqlConfig}
             iisConfig={iisConfig}
             adServiceAccount={adConfig.serviceAccount}
+            adServicePassword={adConfig.servicePassword}
+            licenseKey={licenseKey}
             product={effectiveProduct}
             prerequisiteItems={prerequisiteItems}
             hostname={networkConfig.hostname}
@@ -469,6 +478,8 @@ function App() {
                 sqlConfig={sqlConfig}
                 iisConfig={iisConfig}
                 adServiceAccount={adConfig.serviceAccount}
+                adServicePassword={adConfig.servicePassword}
+                licenseKey=""
                 product={effectiveProduct}
                 prerequisiteItems={null}
                 hostname={networkConfig.hostname}

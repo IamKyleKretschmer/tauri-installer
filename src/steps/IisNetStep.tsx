@@ -11,6 +11,7 @@ export interface IisNetConfig {
   sslCertificate: string;
   sourceFilesPath: string;
   packageSource: string;
+  installationFolder: string;
 }
 
 export function IisNetStep({
@@ -129,6 +130,14 @@ export function IisNetStep({
         placeholder="https://example.com/k2-package.zip or C:\Downloads\k2-package.zip"
         value={local.packageSource}
         onChange={(e) => update({ packageSource: e.target.value })}
+      />
+
+      <TextInput
+        label="Real K2 installation folder (optional)"
+        hint={String.raw`An already-extracted K2 build's "Installation" folder that contains SourceCode.SetupManager.exe or Setup.exe (e.g. C:\...\Nintex Automation K2 (5.10) (...)\Installation). If set, the Install step will run the REAL installer against a generated silent-install answer file instead of simulating or copying files. Requires a valid license key entered on the Review step.`}
+        placeholder={String.raw`C:\Users\you\Desktop\Nintex Automation K2 (5.10) (5.0011.1000.0)\Installation`}
+        value={local.installationFolder}
+        onChange={(e) => update({ installationFolder: e.target.value })}
       />
 
       <TextInput

@@ -47,6 +47,7 @@ export function buildBlueprintXml(blueprint: Blueprint): string {
     sslCertificate="${escapeXml(iisConfig.sslCertificate)}"
     sourceFilesPath="${escapeXml(iisConfig.sourceFilesPath)}"
     packageSource="${escapeXml(iisConfig.packageSource)}"
+    installationFolder="${escapeXml(iisConfig.installationFolder)}"
   />
   <ActiveDirectory
     serviceAccount="${escapeXml(adConfig.serviceAccount)}"
@@ -98,6 +99,7 @@ export function parseBlueprintXml(xml: string): Blueprint {
       sslCertificate: attr("Iis", "sslCertificate"),
       sourceFilesPath: attr("Iis", "sourceFilesPath"),
       packageSource: attr("Iis", "packageSource"),
+      installationFolder: attr("Iis", "installationFolder"),
     },
     adConfig: {
       serviceAccount: attr("ActiveDirectory", "serviceAccount"),
