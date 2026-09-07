@@ -44,6 +44,7 @@ export function InstallStep({
   adJsspServiceAccount,
   adJsspPassword,
   licenseKey,
+  machineKey,
   product,
   prerequisiteItems,
   hostname,
@@ -57,6 +58,7 @@ export function InstallStep({
   adJsspServiceAccount: string;
   adJsspPassword: string;
   licenseKey: string;
+  machineKey: string;
   product: ProductInfo | null;
   prerequisiteItems: PrerequisiteItem[] | null;
   hostname: string;
@@ -81,6 +83,7 @@ export function InstallStep({
   const adJsspServiceAccountRef = useRef(adJsspServiceAccount);
   const adJsspPasswordRef = useRef(adJsspPassword);
   const licenseKeyRef = useRef(licenseKey);
+  const machineKeyRef = useRef(machineKey);
   const productRef = useRef(product);
   const prerequisiteItemsRef = useRef(prerequisiteItems);
   const hostnameRef = useRef(hostname);
@@ -93,6 +96,7 @@ export function InstallStep({
     adJsspServiceAccountRef.current = adJsspServiceAccount;
     adJsspPasswordRef.current = adJsspPassword;
     licenseKeyRef.current = licenseKey;
+    machineKeyRef.current = machineKey;
     productRef.current = product;
     prerequisiteItemsRef.current = prerequisiteItems;
     hostnameRef.current = hostname;
@@ -105,6 +109,7 @@ export function InstallStep({
     adJsspServiceAccount,
     adJsspPassword,
     licenseKey,
+    machineKey,
     product,
     prerequisiteItems,
     hostname,
@@ -194,15 +199,18 @@ export function InstallStep({
           password: config.password,
           database: config.databaseName,
         };
-        // A real installer run needs a genuinely fresh database: a
-        // database left over from an earlier failed real-install attempt
-        // has encryption config baked in from that attempt's machine/
-        // Rijndael keys, which a new run's freshly-generated keys won't
-        // match, surfacing as SetupManager's "EncryptionValidation:
-        // Unable to validate encryption" rather than anything SQL-side.
-        // The simulated/copy-based path doesn't hit that validation, so
-        // it's safe to keep reusing an existing database there.
-        if (iisConfigRef.current.installationFolder.trim()) {
+        // A real installer run needs either a genuinely fresh database, or
+        // a stable machine key it can reuse: a database left over from an
+        // earlier real-install attempt has encryption config baked in
+        // from that attempt's machine/Rijndael keys, so a run using a
+        // *different* key can't decrypt it, surfacing as SetupManager's
+        // "EncryptionValidation: Unable to validate encryption" rather
+        // than anything SQL-side. If a machine key is configured, every
+        // run reuses that same key, so the database can be built on
+        // instead of dropped. The simulated/copy-based path doesn't hit
+        // that validation at all, so it's safe to keep reusing an
+        // existing database there regardless.
+        if (iisConfigRef.current.installationFolder.trim() && !machineKeyRef.current.trim()) {
           const dropResult = await dropK2Database(params);
           if (!dropResult.success) return dropResult;
         }
@@ -241,6 +249,7 @@ export function InstallStep({
           networkConfig: { hostname: hostnameRef.current },
           productVersion: productRef.current?.version ?? "",
           licenseKey: licenseKeyRef.current,
+          machineKey: machineKeyRef.current,
         });
         return runRealInstaller(config.installationFolder, xml);
       },

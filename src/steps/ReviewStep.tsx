@@ -34,6 +34,8 @@ export function ReviewStep({
   portTestResult,
   licenseKey,
   onLicenseKeyChange,
+  machineKey,
+  onMachineKeyChange,
 }: {
   sqlConfig: SqlServerConfig;
   iisConfig: IisNetConfig;
@@ -46,6 +48,8 @@ export function ReviewStep({
   portTestResult: ActionResult | null;
   licenseKey: string;
   onLicenseKeyChange: (value: string) => void;
+  machineKey: string;
+  onMachineKeyChange: (value: string) => void;
 }) {
   const certificateLabel = iisConfig.sslCertificate
     ? (certificates.find((c) => c.thumbprint === iisConfig.sslCertificate)?.subject ?? iisConfig.sslCertificate)
@@ -101,6 +105,18 @@ export function ReviewStep({
             type="password"
             value={licenseKey}
             onChange={(e) => onLicenseKeyChange(e.target.value)}
+          />
+
+          <TextInput
+            label="Machine key (optional)"
+            hint={
+              'Retrieved via ".\\Setup.exe /noui /systemkey" on this machine. If set, this exact key is reused on every ' +
+              "real install run, so the K2 database's encrypted contents stay decryptable across attempts and the database " +
+              "is reused instead of dropped and recreated. Leave blank to keep the current behavior: a fresh key is " +
+              "generated each run and the database is dropped first so it doesn't conflict with the previous run's key."
+            }
+            value={machineKey}
+            onChange={(e) => onMachineKeyChange(e.target.value)}
           />
         </div>
       )}

@@ -26,6 +26,8 @@ export interface SilentInstallConfig {
   networkConfig: NetworkTlsConfig;
   productVersion: string;
   licenseKey: string;
+  /** When set, reused as-is so the target database's encrypted contents stay decryptable across install attempts. */
+  machineKey: string;
 }
 
 function escapeXml(value: string): string {
@@ -51,7 +53,7 @@ function connectionString(sqlConfig: SqlServerConfig): string {
 const COMPONENTS = ["CORE", "DATABASE", "CFG", "JSSERVICEPROVIDER", "SERVER", "PDF", "WORKSPACE", "NSA", "CLIENT_PD"];
 
 export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
-  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey } = config;
+  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey } = config;
 
   const dbConnectionString = connectionString(sqlConfig);
   const dbName = sqlConfig.databaseName || "K2";
@@ -72,6 +74,7 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["LICENSETYPE", "PRODUCTION"],
     ["LICENSEDPRODUCT", "K2FIVE"],
     ["LICENSEKEY", licenseKey],
+    ["MACHINEKEY", machineKey],
     ["HOSTSERVERNAME", "LOCALHOST"],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
