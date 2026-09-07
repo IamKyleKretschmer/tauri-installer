@@ -8,6 +8,7 @@ import {
   deployK2Payload,
   disableLegacyTls,
   downloadK2Package,
+  dropK2Database,
   extractK2Package,
   grantServiceLogonRight,
   runRealInstaller,
@@ -184,15 +185,28 @@ export function InstallStep({
             },
           }
         : {}),
-      db: () => {
+      db: async () => {
         const config = sqlConfigRef.current;
-        return testSqlConnection({
+        const params = {
           instance: config.instance,
           authMode: config.authMode,
           username: config.username,
           password: config.password,
           database: config.databaseName,
-        });
+        };
+        // A real installer run needs a genuinely fresh database: a
+        // database left over from an earlier failed real-install attempt
+        // has encryption config baked in from that attempt's machine/
+        // Rijndael keys, which a new run's freshly-generated keys won't
+        // match, surfacing as SetupManager's "EncryptionValidation:
+        // Unable to validate encryption" rather than anything SQL-side.
+        // The simulated/copy-based path doesn't hit that validation, so
+        // it's safe to keep reusing an existing database there.
+        if (iisConfigRef.current.installationFolder.trim()) {
+          const dropResult = await dropK2Database(params);
+          if (!dropResult.success) return dropResult;
+        }
+        return testSqlConnection(params);
       },
       iis: () => {
         const config = iisConfigRef.current;
