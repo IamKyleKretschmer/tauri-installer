@@ -10,6 +10,7 @@ import {
   downloadK2Package,
   dropK2Database,
   extractK2Package,
+  getMachineKey,
   grantServiceLogonRight,
   runRealInstaller,
   testSqlConnection,
@@ -42,7 +43,6 @@ export function InstallStep({
   adServiceAccount,
   adServicePassword,
   licenseKey,
-  machineKey,
   product,
   prerequisiteItems,
   hostname,
@@ -54,7 +54,6 @@ export function InstallStep({
   adServiceAccount: string;
   adServicePassword: string;
   licenseKey: string;
-  machineKey: string;
   product: ProductInfo | null;
   prerequisiteItems: PrerequisiteItem[] | null;
   hostname: string;
@@ -77,7 +76,6 @@ export function InstallStep({
   const adServiceAccountRef = useRef(adServiceAccount);
   const adServicePasswordRef = useRef(adServicePassword);
   const licenseKeyRef = useRef(licenseKey);
-  const machineKeyRef = useRef(machineKey);
   const productRef = useRef(product);
   const prerequisiteItemsRef = useRef(prerequisiteItems);
   const hostnameRef = useRef(hostname);
@@ -88,7 +86,6 @@ export function InstallStep({
     adServiceAccountRef.current = adServiceAccount;
     adServicePasswordRef.current = adServicePassword;
     licenseKeyRef.current = licenseKey;
-    machineKeyRef.current = machineKey;
     productRef.current = product;
     prerequisiteItemsRef.current = prerequisiteItems;
     hostnameRef.current = hostname;
@@ -99,7 +96,6 @@ export function InstallStep({
     adServiceAccount,
     adServicePassword,
     licenseKey,
-    machineKey,
     product,
     prerequisiteItems,
     hostname,
@@ -115,6 +111,9 @@ export function InstallStep({
     // entered source files folder — mirroring the real script's
     // Initialize-Download -> Initialize-Extract -> Initialize-Install chain.
     let extractedSourcePath: string | null = null;
+    // Populated by the "db" task's silent /systemkey retrieval, consumed
+    // by "components" when building the answer file.
+    let retrievedMachineKey: string | null = null;
     // Accumulated locally (not just via setLog) so the final onDone call
     // can hand App the complete log; React state read through this
     // closure would otherwise be stale (captured once, at effect
@@ -189,20 +188,27 @@ export function InstallStep({
           password: config.password,
           database: config.databaseName,
         };
-        // A real installer run needs either a genuinely fresh database, or
-        // a stable machine key it can reuse: a database left over from an
-        // earlier real-install attempt has encryption config baked in
-        // from that attempt's machine/Rijndael keys, so a run using a
-        // *different* key can't decrypt it, surfacing as SetupManager's
-        // "EncryptionValidation: Unable to validate encryption" rather
-        // than anything SQL-side. If a machine key is configured, every
-        // run reuses that same key, so the database can be built on
-        // instead of dropped. The simulated/copy-based path doesn't hit
-        // that validation at all, so it's safe to keep reusing an
-        // existing database there regardless.
-        if (iisConfigRef.current.installationFolder.trim() && !machineKeyRef.current.trim()) {
-          const dropResult = await dropK2Database(params);
-          if (!dropResult.success) return dropResult;
+        // A real installer run needs real, machine-derived key material -
+        // a value this app invents itself can never match what
+        // SetupManager's own encryption validation expects, which is why
+        // that step kept failing even against a freshly created database.
+        // Silently ask the real installer for its real key
+        // (".\Setup.exe /noui /systemkey", same as Get-MachineKey in the
+        // real automation script) before touching the database. That key
+        // is stable per machine, so a database built with it stays
+        // decryptable across attempts and doesn't need dropping; only
+        // fall back to a random key (and a clean database) if retrieval
+        // itself fails.
+        const installationFolder = iisConfigRef.current.installationFolder.trim();
+        if (installationFolder) {
+          const keyResult = await getMachineKey(installationFolder);
+          if (keyResult.success) {
+            retrievedMachineKey = keyResult.message;
+          } else {
+            retrievedMachineKey = null;
+            const dropResult = await dropK2Database(params);
+            if (!dropResult.success) return dropResult;
+          }
         }
         return testSqlConnection(params);
       },
@@ -237,7 +243,7 @@ export function InstallStep({
           networkConfig: { hostname: hostnameRef.current },
           productVersion: productRef.current?.version ?? "",
           licenseKey: licenseKeyRef.current,
-          machineKey: machineKeyRef.current,
+          machineKey: retrievedMachineKey ?? "",
         });
         return runRealInstaller(config.installationFolder, xml);
       },
