@@ -40,6 +40,8 @@ export function InstallStep({
   iisConfig,
   adServiceAccount,
   adServicePassword,
+  adJsspServiceAccount,
+  adJsspPassword,
   licenseKey,
   product,
   prerequisiteItems,
@@ -51,6 +53,8 @@ export function InstallStep({
   iisConfig: IisNetConfig;
   adServiceAccount: string;
   adServicePassword: string;
+  adJsspServiceAccount: string;
+  adJsspPassword: string;
   licenseKey: string;
   product: ProductInfo | null;
   prerequisiteItems: PrerequisiteItem[] | null;
@@ -73,6 +77,8 @@ export function InstallStep({
   const iisConfigRef = useRef(iisConfig);
   const adServiceAccountRef = useRef(adServiceAccount);
   const adServicePasswordRef = useRef(adServicePassword);
+  const adJsspServiceAccountRef = useRef(adJsspServiceAccount);
+  const adJsspPasswordRef = useRef(adJsspPassword);
   const licenseKeyRef = useRef(licenseKey);
   const productRef = useRef(product);
   const prerequisiteItemsRef = useRef(prerequisiteItems);
@@ -83,11 +89,25 @@ export function InstallStep({
     iisConfigRef.current = iisConfig;
     adServiceAccountRef.current = adServiceAccount;
     adServicePasswordRef.current = adServicePassword;
+    adJsspServiceAccountRef.current = adJsspServiceAccount;
+    adJsspPasswordRef.current = adJsspPassword;
     licenseKeyRef.current = licenseKey;
     productRef.current = product;
     prerequisiteItemsRef.current = prerequisiteItems;
     hostnameRef.current = hostname;
-  }, [onDone, sqlConfig, iisConfig, adServiceAccount, adServicePassword, licenseKey, product, prerequisiteItems, hostname]);
+  }, [
+    onDone,
+    sqlConfig,
+    iisConfig,
+    adServiceAccount,
+    adServicePassword,
+    adJsspServiceAccount,
+    adJsspPassword,
+    licenseKey,
+    product,
+    prerequisiteItems,
+    hostname,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,7 +216,14 @@ export function InstallStep({
         const xml = buildK2SilentInstallXml({
           sqlConfig: sqlConfigRef.current,
           iisConfig: config,
-          adConfig: { serviceAccount: adServiceAccountRef.current, servicePassword: adServicePasswordRef.current, adminsGroup: "", createGroupIfMissing: false },
+          adConfig: {
+            serviceAccount: adServiceAccountRef.current,
+            servicePassword: adServicePasswordRef.current,
+            adminsGroup: "",
+            createGroupIfMissing: false,
+            jsspServiceAccount: adJsspServiceAccountRef.current,
+            jsspPassword: adJsspPasswordRef.current,
+          },
           networkConfig: { hostname: hostnameRef.current },
           productVersion: productRef.current?.version ?? "",
           licenseKey: licenseKeyRef.current,

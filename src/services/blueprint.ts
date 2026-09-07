@@ -54,6 +54,8 @@ export function buildBlueprintXml(blueprint: Blueprint): string {
     servicePassword="${escapeXml(adConfig.servicePassword)}"
     adminsGroup="${escapeXml(adConfig.adminsGroup)}"
     createGroupIfMissing="${adConfig.createGroupIfMissing ? "true" : "false"}"
+    jsspServiceAccount="${escapeXml(adConfig.jsspServiceAccount)}"
+    jsspPassword="${escapeXml(adConfig.jsspPassword)}"
   />
   <Network
     hostname="${escapeXml(networkConfig.hostname)}"
@@ -106,6 +108,8 @@ export function parseBlueprintXml(xml: string): Blueprint {
       servicePassword: attr("ActiveDirectory", "servicePassword"),
       adminsGroup: attr("ActiveDirectory", "adminsGroup"),
       createGroupIfMissing: attr("ActiveDirectory", "createGroupIfMissing", "false") === "true",
+      jsspServiceAccount: attr("ActiveDirectory", "jsspServiceAccount"),
+      jsspPassword: attr("ActiveDirectory", "jsspPassword"),
     },
     networkConfig: {
       hostname: attr("Network", "hostname"),

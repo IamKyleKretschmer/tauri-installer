@@ -105,12 +105,13 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["ADMINPASS", adConfig.servicePassword],
     ["USERSNAME", adConfig.serviceAccount],
     ["USERSPASS", adConfig.servicePassword],
-    // The JavaScript Service Provider component validates its own,
-    // separate low-trust service account tokens rather than reusing
-    // USERSNAME/USERSPASS - reusing the same account here since the
-    // wizard doesn't collect a distinct one.
-    ["JSSP_AD_USER_NAME", adConfig.serviceAccount],
-    ["JSSP_PASS", adConfig.servicePassword],
+    // The JavaScript Service Provider component validates that this
+    // account is specifically a low-trust one, and will reject the main
+    // K2 service account if that account has elevated rights - so this
+    // uses the wizard's dedicated JSSP account fields, falling back to
+    // the main service account only if the wizard left them blank.
+    ["JSSP_AD_USER_NAME", adConfig.jsspServiceAccount || adConfig.serviceAccount],
+    ["JSSP_PASS", adConfig.jsspServiceAccount ? adConfig.jsspPassword : adConfig.servicePassword],
     ["SETSPN", "False"],
     ["SERVICE_NAME", "K2 Server"],
     ["ISONDOMAIN", "true"],
