@@ -127,6 +127,15 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["MACHINEKEY", effectiveMachineKey],
     ["RIJNDAEL_KEY", rijndaelKey],
     ["RIJNDAEL_IV", rijndaelIv],
+    // Left unset, SetupManager defaults this to true whenever
+    // Product.Config's defaultEncryptionType is "SQL" (confirmed via a
+    // real install trace log), which requires a SQL Server-native
+    // symmetric key ('SCSSOKey') that only exists if K2's own real
+    // database schema deployment created it - something this app doesn't
+    // run. Forcing it false makes SetupManager use the RIJNDAEL_KEY/IV
+    // above instead, which we do provide, avoiding
+    // "EncryptionValidation: Unable to validate encryption" entirely.
+    ["USESQLENCRYPTION", "false"],
     ["HOSTSERVERNAME", "LOCALHOST"],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
