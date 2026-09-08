@@ -754,6 +754,16 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
 #[cfg(target_os = "windows")]
 const SYSTEMKEY_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[cfg(target_os = "windows")]
+fn extract_system_key(output: &str) -> Option<String> {
+    let marker = "System key:";
+    let after_marker = &output[output.find(marker)? + marker.len()..];
+    let quote_start = after_marker.find('\'')? + 1;
+    let quote_end = after_marker[quote_start..].find('\'')?;
+    let key = after_marker[quote_start..quote_start + quote_end].trim();
+    if key.is_empty() { None } else { Some(key.to_string()) }
+}
+
 #[tauri::command]
 pub async fn get_machine_key(installation_folder: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -798,7 +808,20 @@ pub async fn get_machine_key(installation_folder: String) -> Result<String, Stri
                 ));
             }
 
-            Ok(stdout)
+            // /noui /systemkey doesn't print just the key - it prints its
+            // whole verbose trace (loading license assemblies, log file
+            // path, etc), with the actual key embedded as a line like
+            // `!System key: 'D2037824B3F1472E'`. Passing the raw blob
+            // through as MACHINEKEY is invalid input to the real
+            // installer's encryption validation, so pull just the quoted
+            // value out of it.
+            match extract_system_key(&stdout) {
+                Some(key) => Ok(key),
+                None => Err(format!(
+                    "Could not find a \"System key: '...'\" line in {}'s /systemkey output: {stdout}",
+                    exe_path.display()
+                )),
+            }
         }
         #[cfg(not(target_os = "windows"))]
         {
