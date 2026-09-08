@@ -90,12 +90,7 @@ export function ReviewStep({
 
       {iisConfig.installationFolder && (
         <div className="panel-card">
-          <h3 className="panel-card__title">Real installer license key</h3>
-          <p className="step-intro" style={{ marginBottom: "0.75rem" }}>
-            A real installation folder is configured, so the Install step will run the real SourceCode.SetupManager.exe /
-            Setup.exe against a generated silent-install answer file. Enter a valid license key for that run. It is used only
-            for this install and is never saved to the blueprint file.
-          </p>
+          <h3 className="panel-card__title">License key</h3>
           <TextInput
             label="License key"
             type="password"
