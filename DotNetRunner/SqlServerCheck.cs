@@ -94,19 +94,32 @@ namespace DotNetRunner
                         // Windows auth, K2 would use integrated auth instead
                         // and this step is skipped.
                         string userNote;
-                        if (string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase))
+                        var dbBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database };
+                        using (var dbConnection = new SqlConnection(dbBuilder.ConnectionString))
                         {
-                            var dbBuilder = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database };
-                            using (var dbConnection = new SqlConnection(dbBuilder.ConnectionString))
+                            dbConnection.Open();
+
+                            // The real installer's EncryptionValidation checks
+                            // (confirmed via a real InstallerTrace log) that a
+                            // symmetric key named 'SCSSOKey', protected by a
+                            // certificate named 'SCHostServerCert', already
+                            // exists in the K2 database - normally created by
+                            // K2's own database schema deployment, which this
+                            // app doesn't run. Creating them here (idempotent,
+                            // matching the real object names exactly) lets
+                            // that validator pass against a database we
+                            // created ourselves.
+                            EnsureEncryptionObjects(dbConnection);
+
+                            if (string.Equals(authMode, "sql", StringComparison.OrdinalIgnoreCase))
                             {
-                                dbConnection.Open();
                                 EnsureSchemaOwnerUser(dbConnection, username);
+                                userNote = $" Schema-owner user '{SchemaOwnerUser}' ensured with '{SchemaOwnerRole}' role.";
                             }
-                            userNote = $" Schema-owner user '{SchemaOwnerUser}' ensured with '{SchemaOwnerRole}' role.";
-                        }
-                        else
-                        {
-                            userNote = " Windows authentication: skipped SQL login-based schema-owner user, K2 will use integrated auth.";
+                            else
+                            {
+                                userNote = " Windows authentication: skipped SQL login-based schema-owner user, K2 will use integrated auth.";
+                            }
                         }
 
                         string dbNote = alreadyExisted
@@ -324,6 +337,56 @@ namespace DotNetRunner
                 using (var command = new SqlCommand(sql, connection))
                 {
                     command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates the database master key, certificate, and symmetric key
+        /// K2's real EncryptionValidation checks for by exact name
+        /// ("OPEN SYMMETRIC KEY [SCSSOKey] DECRYPTION BY CERTIFICATE
+        /// [SCHostServerCert]"), all idempotent. A real install's own
+        /// database schema deployment creates these; this stands in for
+        /// that since this app creates the database itself instead of
+        /// running K2's real schema installer.
+        /// </summary>
+        private static void EnsureEncryptionObjects(SqlConnection dbConnection)
+        {
+            using (var command = new SqlCommand(
+                "SELECT COUNT(*) FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##'", dbConnection))
+            {
+                if ((int)command.ExecuteScalar() == 0)
+                {
+                    string masterKeyPassword = Guid.NewGuid().ToString("N") + "Aa1!";
+                    using (var createMasterKey = new SqlCommand(
+                        $"CREATE MASTER KEY ENCRYPTION BY PASSWORD = '{masterKeyPassword.Replace("'", "''")}'", dbConnection))
+                    {
+                        createMasterKey.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            using (var command = new SqlCommand("SELECT COUNT(*) FROM sys.certificates WHERE name = 'SCHostServerCert'", dbConnection))
+            {
+                if ((int)command.ExecuteScalar() == 0)
+                {
+                    using (var createCert = new SqlCommand(
+                        "CREATE CERTIFICATE SCHostServerCert WITH SUBJECT = 'K2 Host Server Certificate'", dbConnection))
+                    {
+                        createCert.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            using (var command = new SqlCommand("SELECT COUNT(*) FROM sys.symmetric_keys WHERE name = 'SCSSOKey'", dbConnection))
+            {
+                if ((int)command.ExecuteScalar() == 0)
+                {
+                    using (var createKey = new SqlCommand(
+                        "CREATE SYMMETRIC KEY SCSSOKey WITH ALGORITHM = AES_256 ENCRYPTION BY CERTIFICATE SCHostServerCert", dbConnection))
+                    {
+                        createKey.ExecuteNonQuery();
+                    }
                 }
             }
         }
