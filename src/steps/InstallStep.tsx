@@ -190,15 +190,16 @@ export function InstallStep({
         };
         // A real installer run needs real, machine-derived key material -
         // a value this app invents itself can never match what
-        // SetupManager's own encryption validation expects, which is why
-        // that step kept failing even against a freshly created database.
-        // Silently ask the real installer for its real key
-        // (".\Setup.exe /noui /systemkey", same as Get-MachineKey in the
-        // real automation script) before touching the database. That key
-        // is stable per machine, so a database built with it stays
-        // decryptable across attempts and doesn't need dropping; only
-        // fall back to a random key (and a clean database) if retrieval
-        // itself fails.
+        // SetupManager's own encryption validation expects. Silently ask
+        // the real installer for its real key (".\Setup.exe /noui
+        // /systemkey", same as Get-MachineKey in the real automation
+        // script) before touching the database. Always drop first
+        // regardless of retrieval outcome: earlier attempts (before this
+        // key handling existed/worked) can have left the database with
+        // config encrypted under a garbage or different key, and reusing
+        // that poisoned database fails validation the same way a genuine
+        // mismatch would, indistinguishably from this run's own key being
+        // wrong. A clean database removes that ambiguity.
         const installationFolder = iisConfigRef.current.installationFolder.trim();
         let keyNote = "";
         if (installationFolder) {
@@ -209,9 +210,9 @@ export function InstallStep({
           } else {
             retrievedMachineKey = null;
             keyNote = ` Machine key retrieval failed (${keyResult.message}), using a random key instead.`;
-            const dropResult = await dropK2Database(params);
-            if (!dropResult.success) return dropResult;
           }
+          const dropResult = await dropK2Database(params);
+          if (!dropResult.success) return dropResult;
         }
         const result = await testSqlConnection(params);
         return result.success ? { ...result, message: result.message + keyNote } : result;
