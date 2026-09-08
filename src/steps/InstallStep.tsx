@@ -200,17 +200,21 @@ export function InstallStep({
         // fall back to a random key (and a clean database) if retrieval
         // itself fails.
         const installationFolder = iisConfigRef.current.installationFolder.trim();
+        let keyNote = "";
         if (installationFolder) {
           const keyResult = await getMachineKey(installationFolder);
           if (keyResult.success) {
             retrievedMachineKey = keyResult.message;
+            keyNote = ` Machine key retrieved: ${keyResult.message}.`;
           } else {
             retrievedMachineKey = null;
+            keyNote = ` Machine key retrieval failed (${keyResult.message}), using a random key instead.`;
             const dropResult = await dropK2Database(params);
             if (!dropResult.success) return dropResult;
           }
         }
-        return testSqlConnection(params);
+        const result = await testSqlConnection(params);
+        return result.success ? { ...result, message: result.message + keyNote } : result;
       },
       iis: () => {
         const config = iisConfigRef.current;
