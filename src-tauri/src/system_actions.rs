@@ -697,6 +697,14 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                 .current_dir(&folder)
                 .arg(format!("/install:{}", xml_path.display()))
                 .arg("/noval")
+                // /noval only disables SetupManager's general answer-file
+                // validation - the encryption-reconciliation check behind
+                // "EncryptionValidation: Unable to validate encryption" is
+                // a separate opt-in (ConnectionEncryptionValidation, real
+                // source: CommandDefinition.cs), only satisfied by this
+                // flag. Real automation script uses the same flag on its
+                // /upgrade path (Initialize-Update).
+                .arg("/UpdateConnectionEncryption")
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
