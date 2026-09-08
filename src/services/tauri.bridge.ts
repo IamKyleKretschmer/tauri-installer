@@ -76,6 +76,7 @@ export const tauriBridge = {
   checkPort: (port: number) => invoke<CheckResult>("check_port", { port }),
   listCertificates: () => invoke<CertificateInfo[]>("list_certificates"),
   getMachineFqdn: () => invoke<string | null>("get_machine_fqdn"),
+  findK2ServiceAccount: () => invoke<string | null>("find_k2_service_account"),
   checkAdObjects: (params: { serviceAccount: string; adminsGroup: string; createGroupIfMissing: boolean }) =>
     invoke<string>("check_ad_objects", {
       serviceAccount: params.serviceAccount,

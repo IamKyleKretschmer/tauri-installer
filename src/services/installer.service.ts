@@ -487,6 +487,11 @@ export async function getMachineFqdn(): Promise<string | null> {
   return tauriBridge.getMachineFqdn().catch(() => null);
 }
 
+/** Real account already running a K2 Windows service on this machine, if any. */
+export async function findK2ServiceAccount(): Promise<string | null> {
+  return tauriBridge.findK2ServiceAccount().catch(() => null);
+}
+
 export interface ReviewChecklistItem {
   id: string;
   label: string;

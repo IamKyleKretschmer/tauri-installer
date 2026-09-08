@@ -77,7 +77,7 @@ const ORDER: WizardStep[] = [
 const DEFAULT_SQL_CONFIG: SqlServerConfig = {
   instanceSource: "existing",
   instance: "",
-  authMode: "sql",
+  authMode: "windows",
   username: "sa",
   password: "",
   databaseName: "K2",
@@ -87,7 +87,7 @@ const DEFAULT_IIS_CONFIG: IisNetConfig = {
   siteName: "K2",
   httpPort: "80",
   httpsPort: "443",
-  appPoolIdentity: "NetworkService",
+  appPoolIdentity: "ApplicationPoolIdentity",
   sslCertificate: "",
   sourceFilesPath: "",
   packageSource: "",

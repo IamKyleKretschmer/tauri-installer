@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Banner, TextInput, Toggle } from "../components/primitives";
 import type { ActionResult, CheckResult } from "../services/installer.service";
-import { getDomainInfo } from "../services/installer.service";
+import { findK2ServiceAccount, getDomainInfo } from "../services/installer.service";
 
 export interface ActiveDirectoryConfig {
   serviceAccount: string;
@@ -31,6 +31,12 @@ export function ActiveDirectoryStep({
     getDomainInfo().then((result) => {
       setDomain(result);
       onLoaded(result);
+    });
+    // Pulls the account already running a K2 Windows service on this
+    // machine (a prior real install typically registers one), if any -
+    // silently does nothing when none is found.
+    findK2ServiceAccount().then((account) => {
+      if (account) update({ serviceAccount: account });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

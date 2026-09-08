@@ -586,3 +586,31 @@ pub fn check_domain_joined() -> CheckResult {
         unsupported("Active Directory")
     }
 }
+
+/// Looks for a K2 service account already configured on this machine (a
+/// prior real install typically registers K2's Windows services to run
+/// as a real domain account like DOMAIN\<HOST>-K2Svc) so the wizard can
+/// offer it as a starting point instead of a generic placeholder. Real
+/// query, no fabricated data - returns None if no K2-named service with
+/// a real account (not LocalSystem/NetworkService/etc) is found.
+#[tauri::command]
+pub async fn find_k2_service_account() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(target_os = "windows")]
+        {
+            let script = r#"
+Get-CimInstance Win32_Service | Where-Object {
+    $_.Name -like 'K2*' -and $_.StartName -and $_.StartName -notmatch '^(LocalSystem|NT AUTHORITY\\|NT SERVICE\\)'
+} | Select-Object -First 1 -ExpandProperty StartName
+"#;
+            run_powershell(script)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}

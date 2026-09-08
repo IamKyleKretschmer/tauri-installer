@@ -35,6 +35,11 @@ export function IisNetStep({
     getIisChecks().then((result) => {
       setChecks(result);
       onLoaded(result);
+      // Default to a real detected certificate instead of leaving this
+      // on "Select from store" when one is available.
+      if (!local.sslCertificate && result.certificates.length > 0) {
+        update({ sslCertificate: result.certificates[0].thumbprint });
+      }
     });
     // Looks for an already-extracted real K2 build (e.g. on the Desktop
     // or in Downloads) so the operator never has to type its path in -
