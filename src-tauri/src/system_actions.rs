@@ -5,6 +5,71 @@ use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
+/// Runs an already-spawned child to completion (or until timeout, killing
+/// it), returning its exit status and captured stdout/stderr.
+///
+/// This exists because `child.try_wait()` in a polling loop, followed by
+/// `child.wait_with_output()`, deadlocks on any chatty child: Windows
+/// pipes have a small fixed buffer (~64KB), and nothing drains stdout/
+/// stderr while the poll loop is running - once a verbose child (like a
+/// full K2 SetupManager /install run, thousands of trace lines) fills
+/// that buffer, its next write blocks forever, the process never exits,
+/// try_wait() never returns Some, and the poll loop just runs out the
+/// clock waiting on a child that's actually stuck on us, not on
+/// whatever it was doing. Real bug found by comparing this every one of
+/// this project's earlier "hangs" against Task Manager (0% CPU the whole
+/// time - a child truly blocked on I/O, not looping) across totally
+/// different network conditions that should have behaved differently.
+/// Draining stdout/stderr concurrently on their own threads, the whole
+/// time the child runs, avoids this entirely.
+#[cfg(target_os = "windows")]
+fn wait_with_timeout(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<(std::process::ExitStatus, String, String), String> {
+    use std::io::Read;
+
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stdout_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stderr_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Timed out after {}s", timeout.as_secs()));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
+    Ok((
+        status,
+        String::from_utf8_lossy(&stdout).trim().to_string(),
+        String::from_utf8_lossy(&stderr).trim().to_string(),
+    ))
+}
+
 // Generous: real mutating actions here (secedit, and especially
 // configure_iis_site provisioning 14 web apps, since each
 // WebAdministration cmdlet call is slow) can legitimately take
@@ -710,36 +775,19 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                 .spawn()
                 .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
 
-            let deadline = Instant::now() + INSTALLER_TIMEOUT;
-            loop {
-                if let Ok(Some(_)) = child.try_wait() {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!(
-                        "Timed out after {}s waiting for the real installer",
-                        INSTALLER_TIMEOUT.as_secs()
-                    ));
-                }
-                std::thread::sleep(Duration::from_millis(500));
-            }
+            let (status, stdout, stderr) = wait_with_timeout(child, INSTALLER_TIMEOUT)
+                .map_err(|e| format!("{e} waiting for the real installer"))?;
 
-            let output = child.wait_with_output().map_err(|e| format!("Failed to wait for installer: {e}"))?;
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-
-            if !output.status.success() {
+            if !status.success() {
                 let detail = if stderr.is_empty() { stdout } else { stderr };
-                return Err(format!("Installer exited with {}: {detail}", output.status));
+                return Err(format!("Installer exited with {status}: {detail}"));
             }
 
             Ok(format!(
                 "Ran {} against {} - exited {}. {}",
                 exe_path.display(),
                 xml_path.display(),
-                output.status,
+                status,
                 if stdout.is_empty() { "(no output)".to_string() } else { stdout }
             ))
         }
@@ -788,26 +836,12 @@ pub async fn get_machine_key(installation_folder: String) -> Result<String, Stri
                 .spawn()
                 .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
 
-            let deadline = Instant::now() + SYSTEMKEY_TIMEOUT;
-            loop {
-                if let Ok(Some(_)) = child.try_wait() {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!("Timed out after {}s waiting for /systemkey", SYSTEMKEY_TIMEOUT.as_secs()));
-                }
-                std::thread::sleep(Duration::from_millis(150));
-            }
+            let (status, stdout, stderr) = wait_with_timeout(child, SYSTEMKEY_TIMEOUT)
+                .map_err(|e| format!("{e} waiting for /systemkey"))?;
 
-            let output = child.wait_with_output().map_err(|e| format!("Failed to wait for {}: {e}", exe_path.display()))?;
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-
-            if !output.status.success() {
+            if !status.success() {
                 let detail = if stderr.is_empty() { stdout } else { stderr };
-                return Err(format!("{} exited with {}: {detail}", exe_path.display(), output.status));
+                return Err(format!("{} exited with {status}: {detail}", exe_path.display()));
             }
             if stdout.is_empty() {
                 return Err(format!(
