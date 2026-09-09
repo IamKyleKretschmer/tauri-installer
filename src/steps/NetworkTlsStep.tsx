@@ -28,7 +28,13 @@ export function NetworkTlsStep({
       setChecks(networkChecks);
       onLoaded(networkChecks);
       if (fqdn && !userEditedHostname.current) {
-        update({ hostname: fqdn });
+        // A real K2 site is normally reachable at a dedicated site name
+        // under the domain (e.g. portal.k2test.net), not the bare machine
+        // hostname (e.g. SAF-K2TEST2153.k2test.com) - which also often
+        // won't match a wildcard SSL certificate scoped to the domain.
+        const firstDot = fqdn.indexOf(".");
+        const domain = firstDot === -1 ? fqdn : fqdn.slice(firstDot + 1);
+        update({ hostname: `portal.${domain}` });
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
