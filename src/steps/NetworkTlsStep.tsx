@@ -11,10 +11,14 @@ export function NetworkTlsStep({
   config,
   onChange,
   onLoaded,
+  licenseKey,
+  onLicenseKeyChange,
 }: {
   config: NetworkTlsConfig;
   onChange: (config: NetworkTlsConfig) => void;
   onLoaded: (checks: NetworkChecks) => void;
+  licenseKey: string;
+  onLicenseKeyChange: (value: string) => void;
 }) {
   const [local, setLocal] = useState(config);
   const [checks, setChecks] = useState<NetworkChecks | null>(null);
@@ -112,6 +116,13 @@ export function NetworkTlsStep({
         hint="Used to generate service URLs. Must match your SSL certificate's CN or SAN."
         value={local.hostname}
         onChange={(e) => handleHostnameChange(e.target.value)}
+      />
+
+      <TextInput
+        label="License key"
+        type="password"
+        value={licenseKey}
+        onChange={(e) => onLicenseKeyChange(e.target.value)}
       />
     </div>
   );

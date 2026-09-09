@@ -366,7 +366,15 @@ function App() {
       nextDisabled = !adDomain || adTesting;
       break;
     case "network-tls":
-      body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} onLoaded={setNetworkChecks} />;
+      body = (
+        <NetworkTlsStep
+          config={networkConfig}
+          onChange={setNetworkConfig}
+          onLoaded={setNetworkChecks}
+          licenseKey={licenseKey}
+          onLicenseKeyChange={setLicenseKey}
+        />
+      );
       nextDisabled = !networkChecks;
       break;
     case "review": {
@@ -381,8 +389,6 @@ function App() {
           certificates={iisChecks?.certificates ?? ([] as CertificateInfo[])}
           sqlTestResult={sqlTestResult}
           portTestResult={portTestResult}
-          licenseKey={licenseKey}
-          onLicenseKeyChange={setLicenseKey}
         />
       );
       const checklist = getReviewChecklist({

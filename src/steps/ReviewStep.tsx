@@ -4,7 +4,6 @@ import type { ActiveDirectoryConfig } from "./ActiveDirectoryStep";
 import type { NetworkTlsConfig } from "./NetworkTlsStep";
 import type { ActionResult, CertificateInfo, CheckResult, NetworkChecks } from "../services/installer.service";
 import { getReviewChecklist } from "../services/installer.service";
-import { TextInput } from "../components/primitives";
 
 function ReviewCard({ title, rows }: { title: string; rows: [string, string][] }) {
   return (
@@ -32,8 +31,6 @@ export function ReviewStep({
   certificates,
   sqlTestResult,
   portTestResult,
-  licenseKey,
-  onLicenseKeyChange,
 }: {
   sqlConfig: SqlServerConfig;
   iisConfig: IisNetConfig;
@@ -44,8 +41,6 @@ export function ReviewStep({
   certificates: CertificateInfo[];
   sqlTestResult: ActionResult | null;
   portTestResult: ActionResult | null;
-  licenseKey: string;
-  onLicenseKeyChange: (value: string) => void;
 }) {
   const certificateLabel = iisConfig.sslCertificate
     ? (certificates.find((c) => c.thumbprint === iisConfig.sslCertificate)?.subject ?? iisConfig.sslCertificate)
@@ -87,18 +82,6 @@ export function ReviewStep({
           ))}
         </div>
       </div>
-
-      {iisConfig.installationFolder && (
-        <div className="panel-card">
-          <h3 className="panel-card__title">License key</h3>
-          <TextInput
-            label="License key"
-            type="password"
-            value={licenseKey}
-            onChange={(e) => onLicenseKeyChange(e.target.value)}
-          />
-        </div>
-      )}
 
       <div className="review-grid">
         <ReviewCard
