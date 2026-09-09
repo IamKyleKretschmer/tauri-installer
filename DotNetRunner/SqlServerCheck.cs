@@ -332,20 +332,55 @@ namespace DotNetRunner
         private static void CreateDatabase(SqlConnection connection, string database)
         {
             string sanitized = database.Replace("]", "]]");
+
+            // SQL Server requires FILENAME whenever NAME is specified for a
+            // file - it won't infer a path on its own the way it does when
+            // you omit NAME entirely. The real installer builds file paths
+            // from its own @path + @dbname variables; we mirror that using
+            // the instance's configured default data path.
+            string dataPath = GetDefaultDataPath(connection);
+            string logPath = GetDefaultLogPath(connection) ?? dataPath;
+
             string sql = $@"
 CREATE DATABASE [{sanitized}]
 ON PRIMARY
-(NAME = [Primary_1], FILEGROWTH = 10%),
-FILEGROUP [FG_Server] (NAME = [FG_Server_1], FILEGROWTH = 10%),
-FILEGROUP [FG_HostServer] (NAME = [FG_HostServer_1], FILEGROWTH = 10%),
-FILEGROUP [FG_Identity] (NAME = [FG_Identity_1], FILEGROWTH = 10%),
-FILEGROUP [FG_SmartBroker] (NAME = [FG_SmartBroker_1], FILEGROWTH = 10%),
-FILEGROUP [FG_ServerLog] (NAME = [FG_ServerLog_1], FILEGROWTH = 10%)
-LOG ON (NAME = [FG_log_1], SIZE = 200MB, FILEGROWTH = 10%)
+(NAME = [Primary_1], FILENAME = N'{dataPath}{sanitized}_Primary_1.mdf', FILEGROWTH = 10%),
+FILEGROUP [FG_Server] (NAME = [FG_Server_1], FILENAME = N'{dataPath}{sanitized}_FG_Server_1.ndf', FILEGROWTH = 10%),
+FILEGROUP [FG_HostServer] (NAME = [FG_HostServer_1], FILENAME = N'{dataPath}{sanitized}_FG_HostServer_1.ndf', FILEGROWTH = 10%),
+FILEGROUP [FG_Identity] (NAME = [FG_Identity_1], FILENAME = N'{dataPath}{sanitized}_FG_Identity_1.ndf', FILEGROWTH = 10%),
+FILEGROUP [FG_SmartBroker] (NAME = [FG_SmartBroker_1], FILENAME = N'{dataPath}{sanitized}_FG_SmartBroker_1.ndf', FILEGROWTH = 10%),
+FILEGROUP [FG_ServerLog] (NAME = [FG_ServerLog_1], FILENAME = N'{dataPath}{sanitized}_FG_ServerLog_1.ndf', FILEGROWTH = 10%)
+LOG ON (NAME = [FG_log_1], FILENAME = N'{logPath}{sanitized}_log_1.ldf', SIZE = 200MB, FILEGROWTH = 10%)
 COLLATE {RequiredCollation};";
             using (var command = new SqlCommand(sql, connection))
             {
                 command.ExecuteNonQuery();
+            }
+        }
+
+        private static string GetDefaultDataPath(SqlConnection connection)
+        {
+            using (var command = new SqlCommand("SELECT SERVERPROPERTY('InstanceDefaultDataPath')", connection))
+            {
+                string path = command.ExecuteScalar() as string;
+                if (string.IsNullOrEmpty(path))
+                {
+                    throw new InvalidOperationException("Could not determine the SQL Server instance's default data path.");
+                }
+                return path.EndsWith("\\", StringComparison.Ordinal) ? path : path + "\\";
+            }
+        }
+
+        private static string GetDefaultLogPath(SqlConnection connection)
+        {
+            using (var command = new SqlCommand("SELECT SERVERPROPERTY('InstanceDefaultLogPath')", connection))
+            {
+                string path = command.ExecuteScalar() as string;
+                if (string.IsNullOrEmpty(path))
+                {
+                    return null;
+                }
+                return path.EndsWith("\\", StringComparison.Ordinal) ? path : path + "\\";
             }
         }
 
