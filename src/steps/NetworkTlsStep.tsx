@@ -120,7 +120,6 @@ export function NetworkTlsStep({
 
       <TextInput
         label="License key"
-        type="password"
         value={licenseKey}
         onChange={(e) => onLicenseKeyChange(e.target.value)}
       />
