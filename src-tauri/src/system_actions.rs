@@ -668,14 +668,22 @@ $paths = @(
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
 $removed = @()
+$failures = @()
 foreach ($path in $paths) {
     Get-ItemProperty -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
         $name = $_.DisplayName
         if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
-            Remove-Item -Path $_.PSPath -Recurse -Force
-            $removed += $name
+            try {
+                Remove-Item -Path $_.PSPath -Recurse -Force -ErrorAction Stop
+                $removed += $name
+            } catch {
+                $failures += "$name ($($_.Exception.Message))"
+            }
         }
     }
+}
+if ($failures.Count -gt 0) {
+    throw "Failed to remove $($failures.Count) K2 product registration(s): $($failures -join '; ')"
 }
 if ($removed.Count -eq 0) {
     "No K2 product registrations found, nothing to remove"
