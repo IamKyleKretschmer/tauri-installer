@@ -80,12 +80,21 @@ namespace DotNetRunner
                     {
                         connection.Open();
 
+                        // Always recreate fresh: a database left over from an
+                        // earlier failed/partial install attempt may be missing
+                        // filegroups or other objects a newer version of this
+                        // tool creates (e.g. FG_HostServer), and there is no
+                        // way to detect that short of comparing schemas. This
+                        // command runs immediately before the real installer,
+                        // so a stale leftover database is never something worth
+                        // preserving.
                         bool alreadyExisted = DatabaseExists(connection, database);
-                        if (!alreadyExisted)
+                        if (alreadyExisted)
                         {
-                            CreateDatabase(connection, database);
-                            ApplyRecommendedDatabaseSettings(connection, database);
+                            DropDatabaseInternal(connection, database);
                         }
+                        CreateDatabase(connection, database);
+                        ApplyRecommendedDatabaseSettings(connection, database);
 
                         // Schema-owner user + role assignment mirror the real
                         // CreateSqlUser/AssignSqlUserRole actions. Only doable
@@ -123,7 +132,7 @@ namespace DotNetRunner
                         }
 
                         string dbNote = alreadyExisted
-                            ? $"Database '{database}' already exists."
+                            ? $"Database '{database}' recreated fresh with collation {RequiredCollation}."
                             : $"Database '{database}' created with collation {RequiredCollation}.";
                         string versionNote = GetFriendlySqlVersionNote(connection);
                         Console.WriteLine($"Connected to {server}{versionNote}. {dbNote}{userNote}");
@@ -183,15 +192,7 @@ namespace DotNetRunner
                             return 0;
                         }
 
-                        string sanitized = database.Replace("]", "]]");
-                        using (var command = new SqlCommand($"ALTER DATABASE [{sanitized}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE", connection))
-                        {
-                            command.ExecuteNonQuery();
-                        }
-                        using (var command = new SqlCommand($"DROP DATABASE [{sanitized}]", connection))
-                        {
-                            command.ExecuteNonQuery();
-                        }
+                        DropDatabaseInternal(connection, database);
 
                         Console.WriteLine($"Database '{database}' dropped from {server}.");
                         return 0;
@@ -288,6 +289,24 @@ namespace DotNetRunner
             catch
             {
                 return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Forces existing connections off (SINGLE_USER WITH ROLLBACK
+        /// IMMEDIATE) and drops the database. Caller must have already
+        /// confirmed the database exists.
+        /// </summary>
+        private static void DropDatabaseInternal(SqlConnection connection, string database)
+        {
+            string sanitized = database.Replace("]", "]]");
+            using (var command = new SqlCommand($"ALTER DATABASE [{sanitized}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE", connection))
+            {
+                command.ExecuteNonQuery();
+            }
+            using (var command = new SqlCommand($"DROP DATABASE [{sanitized}]", connection))
+            {
+                command.ExecuteNonQuery();
             }
         }
 
