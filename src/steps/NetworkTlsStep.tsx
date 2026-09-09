@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { Badge, TextInput } from "../components/primitives";
 import type { NetworkChecks } from "../services/installer.service";
 import { getMachineFqdn, getNetworkChecks } from "../services/installer.service";
@@ -53,6 +54,18 @@ export function NetworkTlsStep({
   function handleHostnameChange(value: string) {
     userEditedHostname.current = true;
     update({ hostname: value });
+  }
+
+  async function handleLicenseKeyFocus() {
+    if (licenseKey) return;
+    try {
+      const clipboardText = await readText();
+      if (clipboardText) {
+        onLicenseKeyChange(clipboardText.trim());
+      }
+    } catch {
+      // Clipboard read can be denied/unavailable - fall back to manual paste.
+    }
   }
 
   const rows = checks
@@ -120,8 +133,10 @@ export function NetworkTlsStep({
 
       <TextInput
         label="License key"
+        hint="Click into the field to paste from your clipboard automatically."
         value={licenseKey}
         onChange={(e) => onLicenseKeyChange(e.target.value)}
+        onFocus={handleLicenseKeyFocus}
       />
     </div>
   );
