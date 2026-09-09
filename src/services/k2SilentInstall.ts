@@ -123,6 +123,7 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["PRODUCTVERSION", productVersion],
     ["LICENSETYPE", "PRODUCTION"],
     ["LICENSEDPRODUCT", "K2FIVE"],
+    ["LICENSEDATA", ""],
     ["LICENSEKEY", licenseKey],
     ["MACHINEKEY", effectiveMachineKey],
     ["RIJNDAEL_KEY", rijndaelKey],
