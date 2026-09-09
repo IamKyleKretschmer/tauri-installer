@@ -455,6 +455,22 @@ export async function revokeServiceLogonRight(account: string): Promise<ActionRe
   }
 }
 
+/**
+ * Clears stale "K2 ..."/"Nintex Automation K2 ..." entries from the
+ * Windows uninstall registry. Without this, the real installer still sees
+ * components like "K2 Database" as already installed on a later configure
+ * attempt (even after we drop and recreate the SQL database ourselves),
+ * treats the run as a repair, and skips re-deploying the K2 schema.
+ */
+export async function removeK2ProductRegistrations(): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.removeK2ProductRegistrations();
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Removes the K2 IIS site and its app pools, reversing configureIisSite. */
 export async function removeIisSite(siteName: string): Promise<ActionResult> {
   try {

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { RemoveConfig } from "./RemoveStep";
-import { dropK2Database, removeIisSite, restoreLegacyTls, revokeServiceLogonRight } from "../services/installer.service";
+import {
+  dropK2Database,
+  removeIisSite,
+  removeK2ProductRegistrations,
+  restoreLegacyTls,
+  revokeServiceLogonRight,
+} from "../services/installer.service";
 
 interface RemovalTask {
   id: string;
@@ -12,6 +18,7 @@ const TASKS: RemovalTask[] = [
   { id: "db", label: "Dropping K2 database" },
   { id: "tls", label: "Re-enabling TLS 1.0 / 1.1" },
   { id: "ad", label: "Revoking AD service logon right" },
+  { id: "registrations", label: "Clearing stale K2 product registrations" },
 ];
 
 export interface RemovalSummary {
@@ -53,6 +60,7 @@ export function RemovalStep({ config, onDone }: { config: RemoveConfig; onDone: 
           }),
         tls: () => restoreLegacyTls(),
         ad: () => revokeServiceLogonRight(cfg.adServiceAccount),
+        registrations: () => removeK2ProductRegistrations(),
       };
 
       let anyFailed = false;

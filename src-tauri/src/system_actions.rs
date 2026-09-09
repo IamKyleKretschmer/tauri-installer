@@ -640,6 +640,60 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
     .map_err(|e| format!("Background task failed: {e}"))?
 }
 
+/// Clears stale "K2 ..."/"Nintex Automation K2 ..." entries from the
+/// Windows uninstall registry (both native and Wow6432Node views).
+///
+/// The real SetupManager decides whether a component like "K2 Database"
+/// needs a fresh install or just a repair by checking whether a product
+/// matching its name is already registered here - the same data Control
+/// Panel's "Programs and Features" reads. Our own Remove flow only tears
+/// down the IIS site, SQL database, TLS registry keys and AD logon right;
+/// it never removes this registration. So on a repeat configure attempt,
+/// the real installer still sees e.g. "K2 Database (5.0011.1000.0)" as
+/// installed (confirmed via a real InstallerTrace log:
+/// "InstallChecker.IsProductInstalledfromNamePart: K2 Database installed:
+/// True"), treats the run as a repair, and skips re-deploying the K2
+/// database schema onto the fresh, empty database we just recreated -
+/// which is why later steps fail with "Invalid object name" against
+/// tables (CustomUM.User, Identity.Identity, HostServer.Application, ...)
+/// that were never actually created.
+#[tauri::command]
+pub async fn remove_k2_product_registrations() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$paths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+$removed = @()
+foreach ($path in $paths) {
+    Get-ItemProperty -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
+        $name = $_.DisplayName
+        if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
+            Remove-Item -Path $_.PSPath -Recurse -Force
+            $removed += $name
+        }
+    }
+}
+if ($removed.Count -eq 0) {
+    "No K2 product registrations found, nothing to remove"
+} else {
+    "Removed $($removed.Count) stale K2 product registration(s): $($removed -join ', ')"
+}
+"#;
+        run_powershell(script)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported("Removing K2 product registrations")
+    }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}
+
 /// Local build folder the POC downloads/extracts into, mirroring the
 /// FullBuild folder AutomateK2Install_v4.7.ps1's Initialize-Download /
 /// Initialize-Extract create under the K2 support share.

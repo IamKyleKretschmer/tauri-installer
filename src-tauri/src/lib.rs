@@ -44,6 +44,7 @@ pub fn run() {
             system_actions::restore_legacy_tls,
             system_actions::grant_service_logon_right,
             system_actions::revoke_service_logon_right,
+            system_actions::remove_k2_product_registrations,
             system_actions::write_install_log,
             system_actions::download_k2_package,
             system_actions::extract_k2_package,
