@@ -300,10 +300,30 @@ namespace DotNetRunner
             }
         }
 
+        /// <summary>
+        /// Matches the real SourceCode.Install.Package.Actions.Database.CreateDatabase
+        /// action's own CREATE DATABASE script (including its FG_Server/FG_HostServer/
+        /// FG_Identity/FG_SmartBroker/FG_ServerLog filegroups). Later K2 install scripts
+        /// place objects into these filegroups by name (e.g. "Invalid filegroup
+        /// 'FG_HostServer' specified"), so a plain single-filegroup CREATE DATABASE -
+        /// which skips the real installer's own database-creation step since the
+        /// database already exists - leaves those filegroups missing and those scripts
+        /// fail once execution reaches them.
+        /// </summary>
         private static void CreateDatabase(SqlConnection connection, string database)
         {
             string sanitized = database.Replace("]", "]]");
-            string sql = $"CREATE DATABASE [{sanitized}] COLLATE {RequiredCollation}";
+            string sql = $@"
+CREATE DATABASE [{sanitized}]
+ON PRIMARY
+(NAME = [Primary_1], FILEGROWTH = 10%),
+FILEGROUP [FG_Server] (NAME = [FG_Server_1], FILEGROWTH = 10%),
+FILEGROUP [FG_HostServer] (NAME = [FG_HostServer_1], FILEGROWTH = 10%),
+FILEGROUP [FG_Identity] (NAME = [FG_Identity_1], FILEGROWTH = 10%),
+FILEGROUP [FG_SmartBroker] (NAME = [FG_SmartBroker_1], FILEGROWTH = 10%),
+FILEGROUP [FG_ServerLog] (NAME = [FG_ServerLog_1], FILEGROWTH = 10%)
+LOG ON (NAME = [FG_log_1], SIZE = 200MB, FILEGROWTH = 10%)
+COLLATE {RequiredCollation};";
             using (var command = new SqlCommand(sql, connection))
             {
                 command.ExecuteNonQuery();
