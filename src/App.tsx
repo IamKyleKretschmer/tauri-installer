@@ -128,6 +128,13 @@ function App() {
 
   const [maintenanceAction, setMaintenanceAction] = useState<MaintenanceAction>("configure");
   const [maintenanceChosen, setMaintenanceChosen] = useState<MaintenanceAction | null>(null);
+  // The real K2 installer can still consider itself installed (registry
+  // product registrations it reads directly, independent of the simpler
+  // "is K2 installed" check this app uses for the maintenance-mode gate)
+  // even when our own check says otherwise - leaving no way to reach the
+  // Remove screen through the UI to clean those up. This lets a user open
+  // it manually regardless of what our own detection thinks.
+  const [forceMaintenance, setForceMaintenance] = useState(false);
   const [removeConfig, setRemoveConfig] = useState<RemoveConfig>(DEFAULT_REMOVE_CONFIG);
   const [removeConfirmed, setRemoveConfirmed] = useState(false);
   const [removalSummary, setRemovalSummary] = useState<RemovalSummary | null>(null);
@@ -281,12 +288,21 @@ function App() {
   switch (step) {
     case "welcome":
       body = (
-        <WelcomeStep
-          product={product}
-          installedVersion={installedVersion}
-          selectedVersion={selectedVersion}
-          onVersionChange={setSelectedVersion}
-        />
+        <div>
+          <WelcomeStep
+            product={product}
+            installedVersion={installedVersion}
+            selectedVersion={selectedVersion}
+            onVersionChange={setSelectedVersion}
+          />
+          <p className="step-intro" style={{ marginTop: "1rem" }}>
+            Installer complaining a component is already installed even though
+            this page doesn't detect K2?{" "}
+            <button type="button" className="link-button" onClick={() => setForceMaintenance(true)}>
+              Open Remove / repair options
+            </button>
+          </p>
+        </div>
       );
       // Keep Next disabled until both the target version/install type and
       // the currently-installed check have resolved (success or failure).
@@ -510,7 +526,7 @@ function App() {
     );
   }
 
-  if (k2Installed && maintenanceChosen === null) {
+  if ((k2Installed || forceMaintenance) && maintenanceChosen === null) {
     return (
       <div className="app-shell">
         <MaintenanceStep
