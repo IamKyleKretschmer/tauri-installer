@@ -895,7 +895,13 @@ fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path)
         .map_err(|e| format!("{e} waiting for the real installer"))?;
 
     if !status.success() {
-        let detail = if stderr.is_empty() { stdout } else { stderr };
+        let detail = if stderr.is_empty() {
+            stdout
+        } else if stdout.is_empty() {
+            stderr
+        } else {
+            format!("{stdout}\n{stderr}")
+        };
         return Err(format!("Installer exited with {status}: {detail}"));
     }
 
