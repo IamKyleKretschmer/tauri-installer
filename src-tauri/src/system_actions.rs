@@ -849,11 +849,30 @@ fn find_setup_exe(folder: &std::path::Path) -> Result<PathBuf, String> {
         })
 }
 
+/// The real SetupManager persists its own per-target completion journal
+/// to disk at `INSTALLDIR\Setup\InstallHistoryRepository.ihr` (plus a
+/// timestamped snapshot per run under `INSTALLDIR\Setup\State\`), rewriting
+/// it after every single run regardless of success or failure. Confirmed
+/// via a real machine: a target that never actually executed still logs
+/// "Target already ran, skipping." on a later run once this file exists,
+/// because it's used as a resume/journal mechanism independent of the
+/// Windows registry (SetupManager keeps it even after we clear every
+/// registry-based "is K2 installed" marker). Since this app always wants a
+/// genuinely fresh attempt rather than a real incremental resume, this
+/// clears it before every real install run.
+#[cfg(target_os = "windows")]
+fn clear_install_history_journal() {
+    let setup_dir = PathBuf::from(r"C:\Program Files\K2\Setup");
+    let _ = std::fs::remove_file(setup_dir.join("InstallHistoryRepository.ihr"));
+    let _ = std::fs::remove_dir_all(setup_dir.join("State"));
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
+            clear_install_history_journal();
             let folder = PathBuf::from(&installation_folder);
             let exe_path = find_setup_exe(&folder)?;
 
