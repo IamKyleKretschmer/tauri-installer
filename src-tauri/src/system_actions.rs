@@ -867,51 +867,99 @@ fn clear_install_history_journal() {
     let _ = std::fs::remove_dir_all(setup_dir.join("State"));
 }
 
+/// Runs SetupManager.exe once against the given answer file and returns its
+/// formatted result, exactly as a single attempt.
+#[cfg(target_os = "windows")]
+fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path) -> Result<String, String> {
+    clear_install_history_journal();
+    let exe_path = find_setup_exe(folder)?;
+
+    let mut child = Command::new(&exe_path)
+        .current_dir(folder)
+        .arg(format!("/install:{}", xml_path.display()))
+        .arg("/noval")
+        // /noval only disables SetupManager's general answer-file
+        // validation - the encryption-reconciliation check behind
+        // "EncryptionValidation: Unable to validate encryption" is
+        // a separate opt-in (ConnectionEncryptionValidation, real
+        // source: CommandDefinition.cs), only satisfied by this
+        // flag. Real automation script uses the same flag on its
+        // /upgrade path (Initialize-Update).
+        .arg("/UpdateConnectionEncryption")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
+
+    let (status, stdout, stderr) = wait_with_timeout(child, INSTALLER_TIMEOUT)
+        .map_err(|e| format!("{e} waiting for the real installer"))?;
+
+    if !status.success() {
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return Err(format!("Installer exited with {status}: {detail}"));
+    }
+
+    Ok(format!(
+        "Ran {} against {} - exited {}. {}",
+        exe_path.display(),
+        xml_path.display(),
+        status,
+        if stdout.is_empty() { "(no output)".to_string() } else { stdout }
+    ))
+}
+
+/// Confirmed via a real InstallerTrace log + the K2 Configuration Service's
+/// own Serilog output: right after SetupManager stops and restarts that
+/// service (as part of the K2 Server component), it immediately calls
+/// RegisterShard to register the environment over a mutual-TLS connection
+/// to that same service on localhost:5560 - sometimes only ~2 seconds
+/// after the restart. The service's own log showed no "Request starting"
+/// entry at all for that attempt (the very first thing ASP.NET Core logs
+/// for any incoming request), proving the connection was rejected at the
+/// TLS/Kestrel transport layer before ever reaching the app - consistent
+/// with Kestrel's HTTPS listener (using mutual TLS/client-certificate
+/// validation) not yet being fully ready immediately after the service
+/// restart. A from-scratch standalone SslStream test against the same
+/// service, run moments later once it had been up for a while, completed
+/// the identical handshake successfully - confirming this is a one-off
+/// startup race in SetupManager's own internal timing, not a real data or
+/// configuration problem, and not something fixable via the answer file
+/// (SetupManager exposes no "wait after service start" option). Since
+/// every earlier root cause in this class of failure (stale registrations,
+/// the install-history journal, database schema) is already handled
+/// automatically and each fresh attempt is fully idempotent, retrying the
+/// whole run is the practical fix.
+#[cfg(target_os = "windows")]
+fn is_transient_service_race(detail: &str) -> bool {
+    detail.contains("RegisterShard") || detail.contains("Register Environment")
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
-            clear_install_history_journal();
             let folder = PathBuf::from(&installation_folder);
-            let exe_path = find_setup_exe(&folder)?;
-
             let xml_path = std::env::temp_dir().join("k2-silent-install.xml");
             std::fs::write(&xml_path, &silent_xml_contents)
                 .map_err(|e| format!("Failed to write answer file {}: {e}", xml_path.display()))?;
 
-            let mut child = Command::new(&exe_path)
-                .current_dir(&folder)
-                .arg(format!("/install:{}", xml_path.display()))
-                .arg("/noval")
-                // /noval only disables SetupManager's general answer-file
-                // validation - the encryption-reconciliation check behind
-                // "EncryptionValidation: Unable to validate encryption" is
-                // a separate opt-in (ConnectionEncryptionValidation, real
-                // source: CommandDefinition.cs), only satisfied by this
-                // flag. Real automation script uses the same flag on its
-                // /upgrade path (Initialize-Update).
-                .arg("/UpdateConnectionEncryption")
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("Failed to launch {}: {e}", exe_path.display()))?;
-
-            let (status, stdout, stderr) = wait_with_timeout(child, INSTALLER_TIMEOUT)
-                .map_err(|e| format!("{e} waiting for the real installer"))?;
-
-            if !status.success() {
-                let detail = if stderr.is_empty() { stdout } else { stderr };
-                return Err(format!("Installer exited with {status}: {detail}"));
+            const MAX_ATTEMPTS: u32 = 3;
+            let mut last_err = String::new();
+            for attempt in 1..=MAX_ATTEMPTS {
+                match run_real_installer_once(&folder, &xml_path) {
+                    Ok(message) => return Ok(message),
+                    Err(err) => {
+                        if attempt < MAX_ATTEMPTS && is_transient_service_race(&err) {
+                            std::thread::sleep(Duration::from_secs(15));
+                            last_err = err;
+                            continue;
+                        }
+                        return Err(err);
+                    }
+                }
             }
-
-            Ok(format!(
-                "Ran {} against {} - exited {}. {}",
-                exe_path.display(),
-                xml_path.display(),
-                status,
-                if stdout.is_empty() { "(no output)".to_string() } else { stdout }
-            ))
+            Err(last_err)
         }
         #[cfg(not(target_os = "windows"))]
         {
