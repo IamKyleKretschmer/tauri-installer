@@ -640,48 +640,89 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
     .map_err(|e| format!("Background task failed: {e}"))?
 }
 
-/// Clears stale "K2 ..."/"Nintex Automation K2 ..." entries from the
-/// Windows uninstall registry (both native and Wow6432Node views).
-///
-/// The real SetupManager decides whether a component like "K2 Database"
-/// needs a fresh install or just a repair by checking whether a product
-/// matching its name is already registered here - the same data Control
-/// Panel's "Programs and Features" reads. Our own Remove flow only tears
-/// down the IIS site, SQL database, TLS registry keys and AD logon right;
-/// it never removes this registration. So on a repeat configure attempt,
-/// the real installer still sees e.g. "K2 Database (5.0011.1000.0)" as
-/// installed (confirmed via a real InstallerTrace log:
-/// "InstallChecker.IsProductInstalledfromNamePart: K2 Database installed:
-/// True"), treats the run as a repair, and skips re-deploying the K2
+/// Clears stale K2 product registrations that make the real SetupManager
+/// think components like "K2 Database" are already installed, so a repeat
+/// Configure treats the run as a repair and skips re-deploying the K2
 /// database schema onto the fresh, empty database we just recreated -
 /// which is why later steps fail with "Invalid object name" against
 /// tables (CustomUM.User, Identity.Identity, HostServer.Application, ...)
 /// that were never actually created.
+///
+/// Confirmed via a real machine's registry (not a guess): the plain
+/// "Programs and Features" Uninstall keys were NOT the source - those were
+/// empty in both HKLM and HKCU, and `Win32_Product` (true MSI enumeration)
+/// found nothing either. The real registration turned out to be genuine
+/// Windows Installer product data keyed by a compressed "Darwin
+/// descriptor" form of the product GUID (byte-reordered, no dashes) under:
+///   HKLM:\SOFTWARE\Classes\Installer\Products\<compressed-guid>
+///   HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\<SID>\Products\<compressed-guid>
+/// (found under the SYSTEM SID, S-1-5-18, in the confirmed case, but any
+/// SID's UserData is checked here since it could be a per-user install
+/// on a different machine). ProductName in these keys still reads e.g.
+/// "K2 Database (5.0011.1000.0)", matching InstallChecker's own check.
 #[tauri::command]
 pub async fn remove_k2_product_registrations() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
         let script = r#"
-$paths = @(
+$removed = @()
+$failures = @()
+
+function Remove-MatchedKey($path) {
+    try {
+        Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+        return $true
+    } catch {
+        $script:failures += "$path ($($_.Exception.Message))"
+        return $false
+    }
+}
+
+# Plain "Programs and Features" Uninstall entries, if present.
+$uninstallPaths = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
-$removed = @()
-$failures = @()
-foreach ($path in $paths) {
+foreach ($path in $uninstallPaths) {
     Get-ItemProperty -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
         $name = $_.DisplayName
         if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
-            try {
-                Remove-Item -Path $_.PSPath -Recurse -Force -ErrorAction Stop
-                $removed += $name
-            } catch {
-                $failures += "$name ($($_.Exception.Message))"
+            if (Remove-MatchedKey $_.PSPath) { $removed += $name }
+        }
+    }
+}
+
+# Real Windows Installer product registrations, keyed by compressed
+# "Darwin descriptor" product codes rather than the friendly GUID text.
+$installerProductRoots = @(
+    'HKLM:\SOFTWARE\Classes\Installer\Products\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Classes\Installer\Products\*'
+)
+$matchedCodes = @()
+foreach ($path in $installerProductRoots) {
+    Get-ItemProperty -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
+        $name = $_.ProductName
+        if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
+            $matchedCodes += $_.PSChildName
+            if (Remove-MatchedKey $_.PSPath) { $removed += $name }
+        }
+    }
+}
+
+# Each matched product code also has a per-SID UserData registration
+# (InstallProperties etc.) that InstallChecker reads from directly.
+if ($matchedCodes.Count -gt 0) {
+    Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData' -ErrorAction SilentlyContinue | ForEach-Object {
+        foreach ($code in $matchedCodes) {
+            $userDataPath = Join-Path $_.PSPath "Products\$code"
+            if (Test-Path $userDataPath) {
+                Remove-MatchedKey $userDataPath | Out-Null
             }
         }
     }
 }
+
 if ($failures.Count -gt 0) {
     throw "Failed to remove $($failures.Count) K2 product registration(s): $($failures -join '; ')"
 }
