@@ -699,26 +699,26 @@ $installerProductRoots = @(
     'HKLM:\SOFTWARE\Classes\Installer\Products\*',
     'HKLM:\SOFTWARE\WOW6432Node\Classes\Installer\Products\*'
 )
-$matchedCodes = @()
 foreach ($path in $installerProductRoots) {
     Get-ItemProperty -Path $path -ErrorAction SilentlyContinue | ForEach-Object {
         $name = $_.ProductName
         if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
-            $matchedCodes += $_.PSChildName
             if (Remove-MatchedKey $_.PSPath) { $removed += $name }
         }
     }
 }
 
-# Each matched product code also has a per-SID UserData registration
-# (InstallProperties etc.) that InstallChecker reads from directly.
-if ($matchedCodes.Count -gt 0) {
-    Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData' -ErrorAction SilentlyContinue | ForEach-Object {
-        foreach ($code in $matchedCodes) {
-            $userDataPath = Join-Path $_.PSPath "Products\$code"
-            if (Test-Path $userDataPath) {
-                Remove-MatchedKey $userDataPath | Out-Null
-            }
+# Per-SID UserData registrations (InstallProperties etc.) are scanned and
+# matched independently by their own ProductName, rather than relying on
+# codes found above - these two registrations don't always exist or get
+# cleaned up together, and InstallChecker can read either one directly.
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData' -ErrorAction SilentlyContinue | ForEach-Object {
+    $productsPath = Join-Path $_.PSPath 'Products\*\InstallProperties'
+    Get-ItemProperty -Path $productsPath -ErrorAction SilentlyContinue | ForEach-Object {
+        $name = $_.DisplayName
+        if ($name -and ($name -like 'K2*' -or $name -like 'Nintex Automation K2*')) {
+            $productKeyPath = Split-Path $_.PSPath
+            if (Remove-MatchedKey $productKeyPath) { $removed += $name }
         }
     }
 }
