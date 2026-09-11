@@ -986,6 +986,46 @@ fn warm_k2_configuration_service() {
     }
 }
 
+/// Real root cause, confirmed on the actual machine (not the timing race
+/// this project chased earlier): the K2 Configuration Service's own log
+/// showed `Certificate not found: CN=LOCALHOST (CN=K2 On Premise Root,
+/// O=K2) in LocalMachine/My` on every single startup. The cert DID exist
+/// there, and its named root CA was present and trusted in LocalMachine\
+/// Root - but replicating .NET's own X509Chain.Build against it produced
+/// `NotSignatureValid`: this LOCALHOST leaf certificate was not actually
+/// signed by the root CA currently in the store. Across many install
+/// attempts over several days, SetupManager regenerates a fresh, self-
+/// signed "K2 On Premise Root, O=K2" CA (same subject name, new key pair)
+/// - orphaning any leaf certs (LOCALHOST, Region Owner, Environment Owner,
+/// ...) signed by an older generation of that root, which no longer
+/// exists. Since every generation shares the identical subject name, K2's
+/// own lookup can't distinguish stale leaves from current ones. Clearing
+/// every K2-generated cert before a fresh run forces SetupManager to
+/// (re)generate one single, internally consistent chain instead of mixing
+/// leaf certs from a previous root generation with the current root.
+#[cfg(target_os = "windows")]
+fn clear_k2_generated_certificates() {
+    let script = r#"
+foreach ($storeName in @('My', 'Root', 'CA')) {
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, 'LocalMachine')
+    $store.Open('ReadWrite')
+    $toRemove = $store.Certificates | Where-Object {
+        $_.Subject -eq 'CN=K2 On Premise Root, O=K2' -or
+        $_.Issuer -like '*K2 On Premise Root*' -or
+        $_.Subject -eq 'CN=K2 OAuth High Trust' -or
+        $_.Issuer -eq 'CN=K2 OAuth High Trust'
+    }
+    foreach ($cert in $toRemove) {
+        $store.Remove($cert)
+    }
+    $store.Close()
+}
+"#;
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .output();
+}
+
 /// Real evidence (5 consecutive trace logs, InstallerTrace260911_2 through
 /// _6) ruled out the "warm restart" theory: SetupManager's own StopService
 /// -> StartService -> RegisterShard sequence has a hard ~1-2s gap and fails
@@ -1028,6 +1068,7 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             // back to the failing one.
             clear_install_history_journal();
             exclude_k2_from_defender(&folder);
+            clear_k2_generated_certificates();
 
             const MAX_ATTEMPTS: u32 = 5;
             let mut last_err = String::new();
