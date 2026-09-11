@@ -110,6 +110,22 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
   const sqlServerInstance = sqlConfig.instance || ".\\SQLEXPRESS";
   const siteUrl = `https://${networkConfig.hostname || "localhost"}`;
 
+  // Real evidence (K2 Server engine's own HostServer log + decompiled
+  // HostLicenseManager.LoadLicensesInternal()): the license row this app
+  // writes to [LicenseKeys] is looked up at runtime with
+  // "WHERE [HostName] = @HostName" using the engine's own resolved local
+  // computer name (confirmed via a real trace log's own environment-setup
+  // line: "[HOST] = SAF-K2TEST2153") - NOT the literal string "LOCALHOST".
+  // Writing the literal "LOCALHOST" here (as this app previously did)
+  // means that WHERE clause matches zero rows, so the loader never even
+  // reaches K2LicenseValidator and throws NotLicensedException - which
+  // then blocks the K2 Server engine's own port-5555 listener from ever
+  // opening, cascading into every RegisterIdentity "actively refused"
+  // failure seen after RegisterShard started succeeding. Deriving the
+  // short computer name from the FQDN entered on the Network & TLS step
+  // (its leading label) matches SetupManager's own convention.
+  const shortHostname = (networkConfig.hostname || "").split(".")[0].trim() || "LOCALHOST";
+
   // Every *CONNECTIONSTRING/*DBNAME pair below points at the same single
   // consolidated database, matching what the real 5.9.1 answer file
   // actually did (see K2five591.xml) rather than the 14-separate-database
@@ -146,11 +162,11 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // above instead, which we do provide, avoiding
     // "EncryptionValidation: Unable to validate encryption" entirely.
     ["USESQLENCRYPTION", "false"],
-    ["HOSTSERVERNAME", "LOCALHOST"],
+    ["HOSTSERVERNAME", shortHostname],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
     ["LBDISCOVERYPORT", "49600"],
-    ["LBHOSTSERVERNAME", "LOCALHOST"],
+    ["LBHOSTSERVERNAME", shortHostname],
     ["LBHOSTSERVERFQDN", networkConfig.hostname || "LOCALHOST"],
     ["LBSITENAME", siteUrl],
     ["HOSTSERVERDBSQLSERVER", sqlServerInstance],
