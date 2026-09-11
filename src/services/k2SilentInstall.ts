@@ -172,6 +172,17 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // above instead, which we do provide, avoiding
     // "EncryptionValidation: Unable to validate encryption" entirely.
     ["USESQLENCRYPTION", "false"],
+    // Real trace log evidence: without this token, K2HostServer.exe.Config
+    // is written with the literal, unsubstituted placeholder text
+    // "[SMARTACTIONSENABLED]" in its enableListeners attribute (line 480),
+    // which .NET's config parser can't parse as a Boolean -
+    // MessageBusService.Init throws ConfigurationErrorsException on every
+    // K2 Server startup, one of two crashes (alongside the missing default
+    // Security Label) that were the real cause behind every RegisterIdentity
+    // "actively refused" failure - the engine never got far enough to open
+    // its port-5555 listener at all. This app doesn't configure SmartActions,
+    // so false.
+    ["SMARTACTIONSENABLED", "false"],
     ["HOSTSERVERNAME", shortHostname],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
