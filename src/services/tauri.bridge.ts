@@ -103,6 +103,7 @@ export const tauriBridge = {
   extractK2Package: (archivePath: string) => invoke<string>("extract_k2_package", { archivePath }),
   runRealInstaller: (installationFolder: string, silentXmlContents: string) =>
     invoke<string>("run_real_installer", { installationFolder, silentXmlContents }),
+  getLatestInstallerLogLine: () => invoke<string | null>("get_latest_installer_log_line"),
   getMachineKey: (installationFolder: string) => invoke<string>("get_machine_key", { installationFolder }),
   findK2InstallationFolder: () => invoke<string | null>("find_installation_folder"),
   scaffoldK2PlaceholderPages: () => invoke<string>("scaffold_k2_placeholder_pages"),

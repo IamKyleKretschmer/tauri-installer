@@ -11,6 +11,7 @@ import {
   dropK2Database,
   extractK2Package,
   getComputerName,
+  getLatestInstallerLogLine,
   getMachineKey,
   grantServiceLogonRight,
   runRealInstaller,
@@ -63,6 +64,12 @@ export function InstallStep({
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [failedTaskId, setFailedTaskId] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  // The real installer can genuinely run for 10-20+ minutes; without this
+  // the UI shows nothing but a static "Running SourceCode.SetupManager.exe
+  // /install" the whole time, which reads as hung even when it's actually
+  // progressing normally. Polled from the installer's own live trace log
+  // while the "components" task is active - see get_latest_installer_log_line.
+  const [liveInstallerStatus, setLiveInstallerStatus] = useState<string | null>(null);
 
   // These props only need to be read once, when the matching task
   // actually runs. Reading them through refs (instead of listing them as
@@ -253,7 +260,17 @@ export function InstallStep({
           machineKey: retrievedMachineKey ?? "",
           computerName,
         });
-        return runRealInstaller(config.installationFolder, xml);
+        const pollHandle = window.setInterval(() => {
+          getLatestInstallerLogLine().then((line) => {
+            if (!cancelled && line) setLiveInstallerStatus(line);
+          });
+        }, 2000);
+        try {
+          return await runRealInstaller(config.installationFolder, xml);
+        } finally {
+          window.clearInterval(pollHandle);
+          setLiveInstallerStatus(null);
+        }
       },
       ad: () => grantServiceLogonRight(adServiceAccountRef.current),
     };
@@ -332,7 +349,11 @@ export function InstallStep({
                   style={{ width: `${state === "waiting" ? 0 : pct}%` }}
                 />
               </div>
-              {state === "active" && <p className="prereq-progress-row__sublabel">{task.subLabel}</p>}
+              {state === "active" && (
+                <p className="prereq-progress-row__sublabel">
+                  {task.id === "components" && liveInstallerStatus ? liveInstallerStatus : task.subLabel}
+                </p>
+              )}
             </div>
           );
         })}

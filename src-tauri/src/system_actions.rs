@@ -1097,6 +1097,51 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
     .map_err(|e| format!("Background task failed: {e}"))?
 }
 
+/// While SetupManager is mid-run, its trace log lives at
+/// `%TEMP%\K2 Setup Log\InstallerTrace<date>_<n>.log` (it only gets moved
+/// to `INSTALLDIR\Setup\Log` at exit - see Execution.SaveInstallState in
+/// every trace log's own tail). Without this, the UI has nothing to show
+/// during a run that can genuinely take 10-20+ minutes except a static
+/// "Running SourceCode.SetupManager.exe /install" the whole time, which
+/// reads as hung/broken even when progressing normally. Polled from the
+/// frontend while the "components" task is active to surface the
+/// installer's own real current step instead.
+#[cfg(target_os = "windows")]
+fn is_noise_log_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || trimmed.starts_with("==") || trimmed.starts_with("Program.InstantiateLog")
+}
+
+#[tauri::command]
+pub fn get_latest_installer_log_line() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let log_dir = std::env::temp_dir().join("K2 Setup Log");
+        let newest = std::fs::read_dir(&log_dir)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("InstallerTrace")
+            })
+            .max_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok())?;
+
+        let contents = std::fs::read_to_string(newest.path()).ok()?;
+        contents
+            .lines()
+            .rev()
+            .map(|line| line.trim_start_matches(['>', ' ']).trim())
+            .find(|line| !is_noise_log_line(line))
+            .map(|line| line.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Real machine-key retrieval, standing in for AutomateK2Install_v4.7.ps1's
 /// Get-MachineKey (`&.\SourceCode.SetupManager.exe /noui /systemkey`).
 /// Run from the same real installation_folder used for run_real_installer,

@@ -507,6 +507,11 @@ export async function getComputerName(): Promise<string | null> {
   return tauriBridge.getComputerName().catch(() => null);
 }
 
+/** Latest meaningful line from the real installer's own live trace log, for progress display while it runs. */
+export async function getLatestInstallerLogLine(): Promise<string | null> {
+  return tauriBridge.getLatestInstallerLogLine().catch(() => null);
+}
+
 /** Real account already running a K2 Windows service on this machine, if any. */
 export async function findK2ServiceAccount(): Promise<string | null> {
   return tauriBridge.findK2ServiceAccount().catch(() => null);
