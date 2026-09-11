@@ -183,6 +183,24 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // its port-5555 listener at all. This app doesn't configure SmartActions,
     // so false.
     ["SMARTACTIONSENABLED", "false"],
+    // Real trace log evidence (the actual root cause of "Default Security
+    // Label not found" -> HostServerEngine.StartHostServer() crash -> every
+    // RegisterIdentity "actively refused"): SetupManager's own
+    // EnsureSecurityLabel targets for both the "K2" and "K2SQL" security
+    // labels compute DefaultLabel dynamically as Equals([INST_Label];;<name>).
+    // Without this token, [INST_Label] is echoed back completely
+    // unresolved (SmartVariables literally returns the string
+    // "[INST_Label]"), so neither comparison is ever true and NO security
+    // label ever gets marked default - HostLicenseManager/HostSecurityManager
+    // then find zero rows via [HostServer].[GetDefaultSecurityLabelName]
+    // and the engine crashes on startup before ever opening its port-5555
+    // listener, regardless of the licensing/hostname fixes (those were real
+    // and necessary, just not sufficient on their own). "K2" is the correct
+    // default here since this is a domain-joined install (the "K2" label's
+    // AuthInit uses the real AD domain; "K2SQL" is only used internally for
+    // system/service connections, per the K2HOSTCONNECTIONSTRING_SYSTEM
+    // connection strings seen throughout every trace log).
+    ["INST_Label", "K2"],
     ["HOSTSERVERNAME", shortHostname],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
