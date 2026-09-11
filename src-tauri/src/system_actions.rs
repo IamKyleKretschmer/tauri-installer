@@ -986,6 +986,32 @@ fn warm_k2_configuration_service() {
     }
 }
 
+/// Real evidence (5 consecutive trace logs, InstallerTrace260911_2 through
+/// _6) ruled out the "warm restart" theory: SetupManager's own StopService
+/// -> StartService -> RegisterShard sequence has a hard ~1-2s gap and fails
+/// identically on EVERY attempt, not just occasionally - deterministic, not
+/// a race. Since StopService kills the process and StartService launches a
+/// brand new one each time, our own pre-warming (which only JITs/pages in
+/// a process that then gets killed) can't carry forward. A well-known cause
+/// of exactly this "SCM says Started but the app isn't actually ready for
+/// several more seconds" symptom is Windows Defender real-time protection
+/// re-scanning the EXE/DLLs on every fresh process launch, even when the
+/// files are already on disk/page-cached. Excluding the K2 install
+/// directory removes that per-launch scan overhead. This does not touch
+/// EnableNetworkProtection (already confirmed disabled) - it is a distinct
+/// real-time file-scanning setting.
+#[cfg(target_os = "windows")]
+fn exclude_k2_from_defender(folder: &std::path::Path) {
+    let script = format!(
+        "Add-MpPreference -ExclusionPath 'C:\\Program Files\\K2\\' -ErrorAction SilentlyContinue; \
+         Add-MpPreference -ExclusionPath '{}' -ErrorAction SilentlyContinue",
+        folder.display()
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .output();
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1001,6 +1027,7 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             // journal to skip already-completed targets and go straight
             // back to the failing one.
             clear_install_history_journal();
+            exclude_k2_from_defender(&folder);
 
             const MAX_ATTEMPTS: u32 = 5;
             let mut last_err = String::new();
