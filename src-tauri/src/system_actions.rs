@@ -868,10 +868,14 @@ fn clear_install_history_journal() {
 }
 
 /// Runs SetupManager.exe once against the given answer file and returns its
-/// formatted result, exactly as a single attempt.
+/// formatted result, exactly as a single attempt. Does NOT touch the install
+/// history journal itself - callers control that, since clearing it before
+/// every retry (rather than once per run_real_installer call) would force
+/// SetupManager to replay the entire install (IIS, AD, SQL schema, ...) on
+/// every retry instead of resuming past the already-completed targets via
+/// its own journal, turning a 15-second retry into a 10-minute one.
 #[cfg(target_os = "windows")]
 fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path) -> Result<String, String> {
-    clear_install_history_journal();
     let exe_path = find_setup_exe(folder)?;
 
     let mut child = Command::new(&exe_path)
@@ -937,7 +941,9 @@ fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path)
 /// whole run is the practical fix.
 #[cfg(target_os = "windows")]
 fn is_transient_service_race(detail: &str) -> bool {
-    detail.contains("RegisterShard") || detail.contains("Register Environment")
+    detail.contains("RegisterShard")
+        || detail.contains("Register Environment")
+        || detail.contains("actively refused it 127.0.0.1:5560")
 }
 
 #[tauri::command]
@@ -950,6 +956,12 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             std::fs::write(&xml_path, &silent_xml_contents)
                 .map_err(|e| format!("Failed to write answer file {}: {e}", xml_path.display()))?;
 
+            // Cleared once, up front, for the whole run - NOT per retry
+            // attempt. Retries after this rely on SetupManager's own
+            // journal to skip already-completed targets and go straight
+            // back to the failing one.
+            clear_install_history_journal();
+
             const MAX_ATTEMPTS: u32 = 3;
             let mut last_err = String::new();
             for attempt in 1..=MAX_ATTEMPTS {
@@ -957,7 +969,7 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                     Ok(message) => return Ok(message),
                     Err(err) => {
                         if attempt < MAX_ATTEMPTS && is_transient_service_race(&err) {
-                            std::thread::sleep(Duration::from_secs(15));
+                            std::thread::sleep(Duration::from_secs(30));
                             last_err = err;
                             continue;
                         }

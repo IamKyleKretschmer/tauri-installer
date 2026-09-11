@@ -127,7 +127,7 @@ export function IisNetStep({
         <option value="">Select from store</option>
         {checks?.certificates.map((cert) => (
           <option key={cert.thumbprint} value={cert.thumbprint}>
-            {cert.subject}
+            {cert.subject} ({cert.thumbprint.slice(-6)})
           </option>
         ))}
       </Select>
