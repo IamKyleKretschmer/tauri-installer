@@ -946,6 +946,46 @@ fn is_transient_service_race(detail: &str) -> bool {
         || detail.contains("actively refused it 127.0.0.1:5560")
 }
 
+/// Confirmed via three real, consecutive trace logs (InstallerTrace260911
+/// _6/_7/_8): the gap between SetupManager's own "Service Started" log line
+/// for K2 Configuration Service and its RegisterShard call is a fixed ~2
+/// seconds on every single attempt, not a random one-off - and it fails
+/// every time on this machine. Waiting longer BETWEEN our external retries
+/// does nothing, since each retry replays the identical Stop -> Start ->
+/// RegisterShard sequence itself, always with the same ~2s gap.
+///
+/// The only lever available without vendor source is to make that specific
+/// restart fast enough to land inside 2 seconds. So before a retry, this
+/// starts the service ourselves (if it's stopped) and polls the real TCP
+/// port until it accepts a connection - which forces the .NET host's
+/// assemblies to be JITed and paged in ahead of time. When SetupManager
+/// then stops and restarts the now-warm service moments later, the OS can
+/// reuse cached pages/JITed code, so the restart itself should be much
+/// faster than the cold start these logs show.
+#[cfg(target_os = "windows")]
+fn warm_k2_configuration_service() {
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Start-Service -Name 'K2 Configuration Service' -ErrorAction SilentlyContinue",
+        ])
+        .output();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:5560".parse().unwrap(),
+            Duration::from_millis(500),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -962,14 +1002,14 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             // back to the failing one.
             clear_install_history_journal();
 
-            const MAX_ATTEMPTS: u32 = 3;
+            const MAX_ATTEMPTS: u32 = 5;
             let mut last_err = String::new();
             for attempt in 1..=MAX_ATTEMPTS {
                 match run_real_installer_once(&folder, &xml_path) {
                     Ok(message) => return Ok(message),
                     Err(err) => {
                         if attempt < MAX_ATTEMPTS && is_transient_service_race(&err) {
-                            std::thread::sleep(Duration::from_secs(30));
+                            warm_k2_configuration_service();
                             last_err = err;
                             continue;
                         }
