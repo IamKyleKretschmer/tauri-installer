@@ -121,7 +121,16 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["ISNLB", "false"],
     ["INSTALLTYPE", "blackpearl"],
     ["PRODUCTVERSION", productVersion],
-    ["LICENSETYPE", "PRODUCTION"],
+    // Real trace log evidence: SetupManager's own Licensing.ValidLicense
+    // check decodes every license key used in this project as "Licensed
+    // Type: EVALUATION". Declaring PRODUCTION here while the license data
+    // itself is an evaluation key is a real, confirmed cause of
+    // HostLicenseManager.LoadLicensesInternal() throwing NotLicensedException
+    // inside the K2 Server engine at startup (a stricter runtime check than
+    // SetupManager's own loose pre-check) - it never opens its port-5555
+    // listener afterward, which is what actually produced every
+    // "actively refused it 127.0.0.1:5555" RegisterIdentity failure.
+    ["LICENSETYPE", "EVALUATION"],
     ["LICENSEDPRODUCT", "K2FIVE"],
     ["LICENSEDATA", ""],
     ["LICENSEKEY", licenseKey],
