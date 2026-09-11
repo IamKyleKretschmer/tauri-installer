@@ -35,6 +35,7 @@ pub fn run() {
             system_checks::check_port,
             system_checks::list_certificates,
             system_checks::get_machine_fqdn,
+            system_checks::get_computer_name,
             system_checks::find_k2_service_account,
             system_actions::configure_iis_site,
             system_actions::remove_iis_site,

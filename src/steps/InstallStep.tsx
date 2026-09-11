@@ -10,6 +10,7 @@ import {
   downloadK2Package,
   dropK2Database,
   extractK2Package,
+  getComputerName,
   getMachineKey,
   grantServiceLogonRight,
   runRealInstaller,
@@ -228,7 +229,7 @@ export function InstallStep({
         });
       },
       tls: () => disableLegacyTls(),
-      components: () => {
+      components: async () => {
         const config = iisConfigRef.current;
         const installationFolder = config.installationFolder.trim();
         if (!installationFolder) {
@@ -236,6 +237,7 @@ export function InstallStep({
           // fall back to the file-copy simulation.
           return deployK2Payload(config.sourceFilesPath);
         }
+        const computerName = (await getComputerName()) ?? "";
         const xml = buildK2SilentInstallXml({
           sqlConfig: sqlConfigRef.current,
           iisConfig: config,
@@ -249,6 +251,7 @@ export function InstallStep({
           productVersion: productRef.current?.version ?? "",
           licenseKey: licenseKeyRef.current,
           machineKey: retrievedMachineKey ?? "",
+          computerName,
         });
         return runRealInstaller(config.installationFolder, xml);
       },

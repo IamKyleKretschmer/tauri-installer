@@ -28,6 +28,14 @@ export interface SilentInstallConfig {
   licenseKey: string;
   /** When set, reused as-is so the target database's encrypted contents stay decryptable across install attempts. */
   machineKey: string;
+  /**
+   * This machine's real short computer name (e.g. "SAF-K2TEST2153"), from
+   * get_computer_name - NOT networkConfig.hostname, which is the K2 site's
+   * public URL/FQDN (defaults to "portal.<domain>") and has no relation to
+   * the actual machine identity the K2 Server engine looks itself up by.
+   * Falls back to "LOCALHOST" only if the real name couldn't be read.
+   */
+  computerName: string;
 }
 
 function escapeXml(value: string): string {
@@ -86,7 +94,7 @@ function deriveBytesFromString(source: string, length: number): Uint8Array {
 }
 
 export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
-  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey } = config;
+  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey, computerName } = config;
 
   // A blank/missing encryption key set is what SetupManager's
   // "EncryptionValidation: Unable to validate encryption" actually turns
@@ -115,16 +123,18 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
   // writes to [LicenseKeys] is looked up at runtime with
   // "WHERE [HostName] = @HostName" using the engine's own resolved local
   // computer name (confirmed via a real trace log's own environment-setup
-  // line: "[HOST] = SAF-K2TEST2153") - NOT the literal string "LOCALHOST".
-  // Writing the literal "LOCALHOST" here (as this app previously did)
-  // means that WHERE clause matches zero rows, so the loader never even
-  // reaches K2LicenseValidator and throws NotLicensedException - which
-  // then blocks the K2 Server engine's own port-5555 listener from ever
-  // opening, cascading into every RegisterIdentity "actively refused"
-  // failure seen after RegisterShard started succeeding. Deriving the
-  // short computer name from the FQDN entered on the Network & TLS step
-  // (its leading label) matches SetupManager's own convention.
-  const shortHostname = (networkConfig.hostname || "").split(".")[0].trim() || "LOCALHOST";
+  // line: "[HOST] = SAF-K2TEST2153") - NOT the literal string "LOCALHOST",
+  // and NOT networkConfig.hostname either (that's the K2 site's public
+  // URL/FQDN, e.g. "portal.k2test.com" - a different, unrelated value
+  // that has no relation to the machine's actual identity; deriving from
+  // it produced "PORTAL", which was just as wrong as "LOCALHOST"). Any
+  // mismatch here means that WHERE clause matches zero rows, so the
+  // loader never even reaches K2LicenseValidator and throws
+  // NotLicensedException - which then blocks the K2 Server engine's own
+  // port-5555 listener from ever opening, cascading into every
+  // RegisterIdentity "actively refused" failure seen after RegisterShard
+  // started succeeding.
+  const shortHostname = computerName.trim() || "LOCALHOST";
 
   // Every *CONNECTIONSTRING/*DBNAME pair below points at the same single
   // consolidated database, matching what the real 5.9.1 answer file

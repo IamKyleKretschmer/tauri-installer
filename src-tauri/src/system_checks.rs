@@ -556,6 +556,30 @@ pub fn get_machine_fqdn() -> Option<String> {
     }
 }
 
+/// Returns this machine's real short computer name (e.g. "SAF-K2TEST2153"),
+/// as distinct from get_machine_fqdn and from whatever site URL/hostname
+/// the user enters on the Network & TLS screen (which defaults to
+/// "portal.<domain>" - a virtual address for the K2 web portal, not the
+/// machine's own identity). Real evidence: a K2 SetupManager trace log's
+/// own environment-setup line reads "[HOST] = SAF-K2TEST2153" - confirmed
+/// (via decompiled HostLicenseManager/HostSecurityManager source) to be
+/// the same value the running K2 Server engine resolves internally as
+/// LOCAL_HOSTNAME, used to filter its own LicenseKeys lookup by HostName.
+/// Needed so the answer file's HOSTSERVERNAME/LBHOSTSERVERNAME tokens -
+/// previously hardcoded to the literal "LOCALHOST", then wrongly derived
+/// from the site URL instead - actually match what the engine looks up.
+#[tauri::command]
+pub fn get_computer_name() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("COMPUTERNAME").ok()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Checks whether this machine is joined to an Active Directory domain.
 #[tauri::command]
 pub fn check_domain_joined() -> CheckResult {
