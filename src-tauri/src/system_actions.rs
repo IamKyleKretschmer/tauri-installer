@@ -946,6 +946,78 @@ fn is_transient_service_race(detail: &str) -> bool {
         || detail.contains("actively refused it 127.0.0.1:5560")
 }
 
+/// Real root cause, confirmed via two consecutive real trace logs
+/// (InstallerTrace260912_2/_3): the "K2 Server" Windows service (the actual
+/// K2HostServer.exe engine) starts and initializes well BEFORE the "System"
+/// account is created - log 2 shows the service starting at 11:29:57-58
+/// while `CustomUmUser.EnsureUserExists: Ensure User: System` doesn't run
+/// until 11:30:45, almost a minute later. The System/K2SQL password itself
+/// is not the problem - `[K2HOSTCONNECTIONSTRING_SYSTEM]` is set exactly
+/// once (Config.SetVariable at the very start) and never regenerated, and
+/// in-process SetupManager operations authenticate with it successfully
+/// throughout the run (e.g. `RegisterIdentity: Success: True`). But when the
+/// separate `DeployPackage.exe`/PowerShell `Deploy-Package` process later
+/// opens a brand new BaseAPI connection to the already-running K2 Server
+/// engine to deploy `Management.kspx`, authenticating as System over that
+/// connection fails with `AuthenticationException: Primary Credentials Not
+/// Authenticated. Session Not Authenticated.` (SourceCode.Hosting.Client.
+/// BaseAPI.BaseAPIConnection.RemoteCall) - even though the exact same
+/// credentials work fine for direct in-process calls happening moments
+/// before. The vendor's own package XML never restarts the actual "K2
+/// Server" service between creating the System account and using it here
+/// (it only restarts unrelated dependent microservices - K2 Configuration
+/// Service, JSSP), so the already-running engine's live security/session
+/// state never gets a chance to pick up an account that didn't exist yet
+/// when it started. This is a blocking, fatal error every time
+/// (`Component.Execute: Logged Error: Internal error has caused the install
+/// to terminate`), confirmed to terminate the whole install identically in
+/// both logs.
+#[cfg(target_os = "windows")]
+fn is_stale_security_context(detail: &str) -> bool {
+    detail.contains("Primary Credentials Not Authenticated")
+        || (detail.contains("Management.kspx") && detail.contains("AuthenticationException"))
+}
+
+/// Restarts the actual K2 Server engine (not the dependent microservices the
+/// vendor package itself restarts) so its security/session state picks up
+/// the System account created earlier in the same run, then polls its
+/// BaseAPI port until it accepts a connection - mirroring
+/// warm_k2_configuration_service's approach, but for the specific "stale
+/// engine, freshly created account" mismatch documented on
+/// is_stale_security_context. SetupManager's own install-history journal
+/// already marks "Ensure System User Exists" complete, so the retry that
+/// follows this will skip straight back to (re-)deploying Management.kspx
+/// without recreating the account or replaying the earlier install steps.
+#[cfg(target_os = "windows")]
+fn restart_k2_server_engine() {
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Restart-Service -Name 'K2 Server' -Force -ErrorAction SilentlyContinue",
+        ])
+        .output();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:5555".parse().unwrap(),
+            Duration::from_millis(500),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // Give the engine a further moment to finish its own internal
+    // security-manager/session initialization after the port first opens -
+    // accepting a TCP connection is not proof the security subsystem behind
+    // it has finished loading.
+    std::thread::sleep(Duration::from_secs(10));
+}
+
 /// Confirmed via three real, consecutive trace logs (InstallerTrace260911
 /// _6/_7/_8): the gap between SetupManager's own "Service Started" log line
 /// for K2 Configuration Service and its RegisterShard call is a fixed ~2
@@ -1078,6 +1150,11 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                     Err(err) => {
                         if attempt < MAX_ATTEMPTS && is_transient_service_race(&err) {
                             warm_k2_configuration_service();
+                            last_err = err;
+                            continue;
+                        }
+                        if attempt < MAX_ATTEMPTS && is_stale_security_context(&err) {
+                            restart_k2_server_engine();
                             last_err = err;
                             continue;
                         }
