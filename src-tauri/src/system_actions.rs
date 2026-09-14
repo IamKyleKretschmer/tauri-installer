@@ -830,10 +830,22 @@ pub async fn extract_k2_package(archive_path: String) -> Result<String, String> 
 /// installation_folder must be a real, already-extracted K2 build's
 /// "Installation" folder (containing one of those two exe names);
 /// silent_xml_contents is the answer file this run writes to a temp file
-/// and passes via /install:<path>. Generous timeout since a real K2
-/// install genuinely can take upwards of 20-30 minutes.
+/// and passes via /install:<path>.
+///
+/// Real trace log evidence (InstallerTrace260914_2/_3, once the
+/// K2HOSTCONNECTIONSTRING fix let the install get past Management.kspx):
+/// a genuine end-to-end K2 Server + Site install runs for 60-90+ minutes.
+/// The previous 1800s (30 min) value was itself the root cause of an
+/// earlier, seemingly inexplicable failure - "APICommunicationException:
+/// ... An existing connection was forcibly closed by the remote host" /
+/// HostServerEngine.StopHostServer() firing mid-deploy - because
+/// wait_with_timeout force-kills the whole SourceCode.SetupManager.exe
+/// process tree the instant this elapses, abruptly severing whatever
+/// connection/service-management operation it had in flight against K2
+/// Server at that moment. Confirmed directly by a later run's own status
+/// message: "Timed out after 1800s waiting for the real installer".
 #[cfg(target_os = "windows")]
-const INSTALLER_TIMEOUT: Duration = Duration::from_secs(1800);
+const INSTALLER_TIMEOUT: Duration = Duration::from_secs(10800);
 
 #[cfg(target_os = "windows")]
 fn find_setup_exe(folder: &std::path::Path) -> Result<PathBuf, String> {
