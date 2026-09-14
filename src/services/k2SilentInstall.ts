@@ -201,6 +201,25 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // system/service connections, per the K2HOSTCONNECTIONSTRING_SYSTEM
     // connection strings seen throughout every trace log).
     ["INST_Label", "K2"],
+    // Real root cause of the Management.kspx "Primary Credentials Not
+    // Authenticated. Session Not Authenticated." failure that blocked every
+    // install after the fixes above got the engine running: confirmed via
+    // K2HostServer.exe.config on the actual machine that its <connectionStrings>
+    // "HostServer" entry held the literal, unresolved text
+    // "[K2HOSTCONNECTIONSTRING]" instead of a real connection string. This
+    // token is only ever set by SetupManager's own UserPanel.FinishPanel()
+    // UI code (decompiled source confirmed) - a wizard panel that never runs
+    // during a silent, answer-file-driven install - so it was never defined
+    // and got written into the config file as raw, useless text. Every
+    // server-internal loopback call that reads this config entry (e.g.
+    // DeploymentServer.GetCategoriesAndDataWithoutRights, called during
+    // Management.kspx deployment) then opens a connection to nowhere,
+    // producing an unauthenticated session and this exact error - completely
+    // unrelated to the System/K2SQL account or its password, which were
+    // always correct. Values mirror UserPanel's own non-SQLUM (AD-joined)
+    // branch, matching INST_Label=K2 above.
+    ["K2HOSTCONNECTIONSTRING", "Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=[LBHOSTSERVERNAME];Port=[HOSTSERVERPORT]"],
+    ["K2WFCONNECTIONSTRING", "Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=[LBHOSTSERVERNAME];Port=[WORKFLOWSERVERPORT]"],
     ["HOSTSERVERNAME", shortHostname],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],
