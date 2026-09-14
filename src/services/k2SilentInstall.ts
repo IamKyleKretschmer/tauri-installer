@@ -253,6 +253,23 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["ADMINPASS", adConfig.servicePassword],
     ["USERSNAME", adConfig.serviceAccount],
     ["USERSPASS", adConfig.servicePassword],
+    // Same class of bug as K2HOSTCONNECTIONSTRING, confirmed via real trace
+    // log evidence (InstallerTrace260914_3): [WORKSUSER] is only ever set by
+    // SetupManager's own UserPanel.FinishPanel() UI code ("if WORKSUSER is
+    // empty, set it to the admin/service account") - a wizard panel that
+    // never runs during a silent install - so it was left as the literal,
+    // unresolved token text and got substituted straight into raw T-SQL:
+    // CreateSqlLogin/CreateSqlUser/AssignSqlUserRole all failed with
+    // "Unclosed quotation mark after the character string '[WORKSUSER] ...'"
+    // since the brackets themselves ended up inside the generated SQL. That
+    // cascaded into every downstream step depending on that SQL login
+    // existing (CreateWebApplication/AssociateAppPoolToWebApp for SP15_WEB,
+    // several K2 Site/K2 Designer permission and redirect targets, and
+    // ultimately the whole "K2 Site" component failing) - all before this
+    // fix, this specific missing token was the real root cause, not IIS or
+    // the app pool itself.
+    ["WORKSUSER", adConfig.serviceAccount],
+    ["WORKSPASS", adConfig.servicePassword],
     ["JSSP_AD_USER_NAME", adConfig.serviceAccount],
     ["JSSP_PASS", adConfig.servicePassword],
     ["SETSPN", "False"],
