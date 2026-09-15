@@ -14,6 +14,7 @@ import {
   getLatestInstallerLogLine,
   getMachineKey,
   grantServiceLogonRight,
+  removeLocalAdminMembership,
   runRealInstaller,
   testSqlConnection,
 } from "../services/installer.service";
@@ -244,6 +245,11 @@ export function InstallStep({
           // fall back to the file-copy simulation.
           return deployK2Payload(config.sourceFilesPath);
         }
+        // K2's JSSP validator rejects the service account outright if it's a
+        // local admin on this machine, regardless of how it got that way
+        // (an earlier attempt, manual troubleshooting, ...). Stripping it
+        // every time keeps a repeat install from failing on this deterministically.
+        await removeLocalAdminMembership(adServiceAccountRef.current);
         const computerName = (await getComputerName()) ?? "";
         const xml = buildK2SilentInstallXml({
           sqlConfig: sqlConfigRef.current,

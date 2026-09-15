@@ -111,6 +111,7 @@ export const tauriBridge = {
   restoreLegacyTls: () => invoke<string>("restore_legacy_tls"),
   grantServiceLogonRight: (account: string) => invoke<string>("grant_service_logon_right", { account }),
   revokeServiceLogonRight: (account: string) => invoke<string>("revoke_service_logon_right", { account }),
+  removeLocalAdminMembership: (account: string) => invoke<string>("remove_local_admin_membership", { account }),
   removeK2ProductRegistrations: () => invoke<string>("remove_k2_product_registrations"),
   removeIisSite: (siteName: string) => invoke<string>("remove_iis_site", { siteName }),
   dropK2Database: (params: { instance: string; authMode: string; username: string; password: string; database: string }) =>

@@ -640,6 +640,55 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
     .map_err(|e| format!("Background task failed: {e}"))?
 }
 
+/// Real root cause, confirmed on a live run: K2's own component validator
+/// (Executor.ValidateComponentPrereqsAndValidators) refuses to configure the
+/// JSSP service with "Low trust user is required as a service account for
+/// the JSSP service" whenever the account is a member of the local
+/// Administrators group on this machine - independent of its AD group
+/// memberships, which can be perfectly ordinary. Since this account got
+/// added to local Administrators at some point between install attempts
+/// (not something the vendor package itself does), and the wizard reuses
+/// the same account for JSSP as everything else, this strips that
+/// membership before every real install run so the validator sees a
+/// genuinely low-trust account every time, not just on the first attempt.
+/// A no-op (not a failure) if the account was never a member.
+#[tauri::command]
+pub async fn remove_local_admin_membership(account: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        {
+            let child = Command::new("net")
+                .args(["localgroup", "administrators", &account, "/delete"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to launch net.exe: {e}"))?;
+
+            let output = child.wait_with_output().map_err(|e| format!("Failed to wait for net.exe: {e}"))?;
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+            // "The specified account name is not a member of the group" (net
+            // error 2237/1377 depending on Windows version) just means it
+            // was already not a local admin - that's the desired end state,
+            // not a failure this action should report.
+            let combined = format!("{stdout} {stderr}");
+            if output.status.success() || combined.to_lowercase().contains("not a member") {
+                Ok(format!("{account} is not a member of the local Administrators group"))
+            } else {
+                Err(if stderr.is_empty() { stdout } else { stderr })
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = account;
+            unsupported("Removing local Administrators membership")
+        }
+    })
+    .await
+    .map_err(|e| format!("Background task failed: {e}"))?
+}
+
 /// Clears stale K2 product registrations that make the real SetupManager
 /// think components like "K2 Database" are already installed, so a repeat
 /// Configure treats the run as a repair and skips re-deploying the K2
@@ -996,6 +1045,41 @@ fn exclude_k2_from_defender(folder: &std::path::Path) {
         .output();
 }
 
+/// Real evidence (this project's own trace logs): right after the "K2
+/// Server" Windows service reports Running, a handful of targets that still
+/// run in the same component (e.g. AllowFrameworkNotificationsProcGroupPermissions)
+/// immediately try to open a BaseAPI connection to it on port 5555 - and hit
+/// this exact SocketException before the engine's listener is actually
+/// ready, which is enough to mark the whole "K2 Server" component failed and
+/// cascade into most of the K2 Site/Workspace web-app creation targets that
+/// depend on it. Distinct from is_stale_security_context (a real, permanent
+/// data-ordering bug in the vendor package) - this is a one-off timing race
+/// that a single retry, after actually confirming the port is open, reliably
+/// clears.
+#[cfg(target_os = "windows")]
+fn is_transient_service_race(detail: &str) -> bool {
+    detail.contains("actively refused it") && detail.contains(":5555")
+}
+
+/// Polls the K2 Server BaseAPI port until it accepts a connection (or gives
+/// up after 60s), so the retry that follows doesn't just replay the same
+/// race a second time.
+#[cfg(target_os = "windows")]
+fn wait_for_k2_server_port() {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:5555".parse().unwrap(),
+            Duration::from_millis(500),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1010,7 +1094,14 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             exclude_k2_from_defender(&folder);
             clear_k2_generated_certificates();
 
-            run_real_installer_once(&folder, &xml_path)
+            match run_real_installer_once(&folder, &xml_path) {
+                Ok(message) => Ok(message),
+                Err(err) if is_transient_service_race(&err) => {
+                    wait_for_k2_server_port();
+                    run_real_installer_once(&folder, &xml_path)
+                }
+                Err(err) => Err(err),
+            }
         }
         #[cfg(not(target_os = "windows"))]
         {

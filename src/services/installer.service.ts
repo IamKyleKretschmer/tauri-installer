@@ -456,6 +456,24 @@ export async function revokeServiceLogonRight(account: string): Promise<ActionRe
 }
 
 /**
+ * Strips the account from the local Administrators group, if present.
+ * K2's own JSSP component validator refuses to configure the service under
+ * a "high trust" account (one with local admin rights on this machine), so
+ * this runs before every real install to keep a repeat attempt from
+ * failing that check just because a prior attempt (or manual troubleshooting)
+ * elevated the account in the meantime. A no-op, not a failure, when the
+ * account was never a member.
+ */
+export async function removeLocalAdminMembership(account: string): Promise<ActionResult> {
+  try {
+    const message = await tauriBridge.removeLocalAdminMembership(account);
+    return { success: true, message };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
  * Clears stale "K2 ..."/"Nintex Automation K2 ..." entries from the
  * Windows uninstall registry. Without this, the real installer still sees
  * components like "K2 Database" as already installed on a later configure
