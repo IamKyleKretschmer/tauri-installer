@@ -117,6 +117,11 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
   const dbName = sqlConfig.databaseName || "K2";
   const sqlServerInstance = sqlConfig.instance || ".\\SQLEXPRESS";
   const siteUrl = `https://${networkConfig.hostname || "localhost"}`;
+  const siteHost = networkConfig.hostname || "localhost";
+  const httpPortValue = iisConfig.httpPort || "80";
+  const httpsPortValue = iisConfig.httpsPort || "443";
+  const httpSiteUrl = `http://${siteHost}${httpPortValue === "80" ? "" : `:${httpPortValue}`}`;
+  const httpsSiteUrl = `https://${siteHost}${httpsPortValue === "443" ? "" : `:${httpsPortValue}`}`;
 
   // Real evidence (K2 Server engine's own HostServer log + decompiled
   // HostLicenseManager.LoadLicensesInternal()): the license row this app
@@ -290,6 +295,27 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // - the actual cause of the app pool creation failure, not IIS itself.
     ["K2APPPOOL", `${iisConfig.siteName || "K2"} AppPool`],
     ["K2APPPOOL_NET4", `${iisConfig.siteName || "K2"} AppPool - .NET 4`],
+    // Real trace log evidence: DoClaimsConfig.EnsureIdVars logs "Variable
+    // [K2SITEURL_SSL] not populated, moving on" / same for [K2SITEURL]
+    // right at startup when these are undefined, which skips setting up
+    // the claims identity/realm rows it normally would - the actual root
+    // cause of a later "INSERT ... conflicted with the FOREIGN KEY
+    // constraint FK_Identity_ClaimRealmIssuer_Identity_ClaimIssuer" failure
+    // deep in K2 Site component setup. Separately, [PRIMARY_WORKSPACE] gets
+    // "Populated ... with default environment field value of type Workspace
+    // URL" then set to NULL, and the still-unresolved "[PRIMARY_WORKSPACE]"
+    // bracket text later gets substituted into an XPath string literal for
+    // a Web.config patch (system.serviceModel/.../add[@baseAddress='...']),
+    // which is what actually threw "This is an unclosed string" - not a
+    // real syntax bug in the XPath template, just this run's actual root
+    // cause (an unset site URL) surfacing several layers downstream.
+    // [K2SFSITEURL]/[K2SFSITEURL_SSL] (SharePoint farm-facing site URL) are
+    // referenced the same way further into K2 Site setup; for this
+    // single-box install, the same host serves both roles.
+    ["K2SITEURL", httpSiteUrl],
+    ["K2SITEURL_SSL", httpsSiteUrl],
+    ["K2SFSITEURL", httpSiteUrl],
+    ["K2SFSITEURL_SSL", httpsSiteUrl],
   ];
 
   const componentsXml = COMPONENTS.map((c) => `    <${c} />`).join("\n");
