@@ -280,6 +280,16 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["SITENAME", iisConfig.siteName || "K2"],
     ["HTTPPORT", iisConfig.httpPort || "80"],
     ["HTTPSPORT", iisConfig.httpsPort || "443"],
+    // Same class of bug as WORKSUSER/K2HOSTCONNECTIONSTRING above: the
+    // vendor package's CreateAppPool targets ("K2 Workspace - Create K2
+    // Workspace App Pool" / "...Create K2 Workspace .NET 4 App Pool")
+    // reference AppPoolName="[K2APPPOOL]" / "[K2APPPOOL_NET4]" and gate on
+    // Condition="![AppPoolExists([K2APPPOOL])]" etc. Without these tokens
+    // defined here, SetupManager substitutes nothing and passes the raw,
+    // unresolved "[K2APPPOOL]" text straight into AppPool.Add/AppPoolExists
+    // - the actual cause of the app pool creation failure, not IIS itself.
+    ["K2APPPOOL", `${iisConfig.siteName || "K2"} AppPool`],
+    ["K2APPPOOL_NET4", `${iisConfig.siteName || "K2"} AppPool - .NET 4`],
   ];
 
   const componentsXml = COMPONENTS.map((c) => `    <${c} />`).join("\n");
