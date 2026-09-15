@@ -930,146 +930,6 @@ fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path)
     ))
 }
 
-/// Confirmed via a real InstallerTrace log + the K2 Configuration Service's
-/// own Serilog output: right after SetupManager stops and restarts that
-/// service (as part of the K2 Server component), it immediately calls
-/// RegisterShard to register the environment over a mutual-TLS connection
-/// to that same service on localhost:5560 - sometimes only ~2 seconds
-/// after the restart. The service's own log showed no "Request starting"
-/// entry at all for that attempt (the very first thing ASP.NET Core logs
-/// for any incoming request), proving the connection was rejected at the
-/// TLS/Kestrel transport layer before ever reaching the app - consistent
-/// with Kestrel's HTTPS listener (using mutual TLS/client-certificate
-/// validation) not yet being fully ready immediately after the service
-/// restart. A from-scratch standalone SslStream test against the same
-/// service, run moments later once it had been up for a while, completed
-/// the identical handshake successfully - confirming this is a one-off
-/// startup race in SetupManager's own internal timing, not a real data or
-/// configuration problem, and not something fixable via the answer file
-/// (SetupManager exposes no "wait after service start" option). Since
-/// every earlier root cause in this class of failure (stale registrations,
-/// the install-history journal, database schema) is already handled
-/// automatically and each fresh attempt is fully idempotent, retrying the
-/// whole run is the practical fix.
-#[cfg(target_os = "windows")]
-fn is_transient_service_race(detail: &str) -> bool {
-    detail.contains("RegisterShard")
-        || detail.contains("Register Environment")
-        || detail.contains("actively refused it 127.0.0.1:5560")
-}
-
-/// Real root cause, confirmed via two consecutive real trace logs
-/// (InstallerTrace260912_2/_3): the "K2 Server" Windows service (the actual
-/// K2HostServer.exe engine) starts and initializes well BEFORE the "System"
-/// account is created - log 2 shows the service starting at 11:29:57-58
-/// while `CustomUmUser.EnsureUserExists: Ensure User: System` doesn't run
-/// until 11:30:45, almost a minute later. The System/K2SQL password itself
-/// is not the problem - `[K2HOSTCONNECTIONSTRING_SYSTEM]` is set exactly
-/// once (Config.SetVariable at the very start) and never regenerated, and
-/// in-process SetupManager operations authenticate with it successfully
-/// throughout the run (e.g. `RegisterIdentity: Success: True`). But when the
-/// separate `DeployPackage.exe`/PowerShell `Deploy-Package` process later
-/// opens a brand new BaseAPI connection to the already-running K2 Server
-/// engine to deploy `Management.kspx`, authenticating as System over that
-/// connection fails with `AuthenticationException: Primary Credentials Not
-/// Authenticated. Session Not Authenticated.` (SourceCode.Hosting.Client.
-/// BaseAPI.BaseAPIConnection.RemoteCall) - even though the exact same
-/// credentials work fine for direct in-process calls happening moments
-/// before. The vendor's own package XML never restarts the actual "K2
-/// Server" service between creating the System account and using it here
-/// (it only restarts unrelated dependent microservices - K2 Configuration
-/// Service, JSSP), so the already-running engine's live security/session
-/// state never gets a chance to pick up an account that didn't exist yet
-/// when it started. This is a blocking, fatal error every time
-/// (`Component.Execute: Logged Error: Internal error has caused the install
-/// to terminate`), confirmed to terminate the whole install identically in
-/// both logs.
-#[cfg(target_os = "windows")]
-fn is_stale_security_context(detail: &str) -> bool {
-    detail.contains("Primary Credentials Not Authenticated")
-        || (detail.contains("Management.kspx") && detail.contains("AuthenticationException"))
-}
-
-/// Restarts the actual K2 Server engine (not the dependent microservices the
-/// vendor package itself restarts) so its security/session state picks up
-/// the System account created earlier in the same run, then polls its
-/// BaseAPI port until it accepts a connection - mirroring
-/// warm_k2_configuration_service's approach, but for the specific "stale
-/// engine, freshly created account" mismatch documented on
-/// is_stale_security_context. SetupManager's own install-history journal
-/// already marks "Ensure System User Exists" complete, so the retry that
-/// follows this will skip straight back to (re-)deploying Management.kspx
-/// without recreating the account or replaying the earlier install steps.
-#[cfg(target_os = "windows")]
-fn restart_k2_server_engine() {
-    let _ = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Restart-Service -Name 'K2 Server' -Force -ErrorAction SilentlyContinue",
-        ])
-        .output();
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while Instant::now() < deadline {
-        if std::net::TcpStream::connect_timeout(
-            &"127.0.0.1:5555".parse().unwrap(),
-            Duration::from_millis(500),
-        )
-        .is_ok()
-        {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-
-    // Give the engine a further moment to finish its own internal
-    // security-manager/session initialization after the port first opens -
-    // accepting a TCP connection is not proof the security subsystem behind
-    // it has finished loading.
-    std::thread::sleep(Duration::from_secs(10));
-}
-
-/// Confirmed via three real, consecutive trace logs (InstallerTrace260911
-/// _6/_7/_8): the gap between SetupManager's own "Service Started" log line
-/// for K2 Configuration Service and its RegisterShard call is a fixed ~2
-/// seconds on every single attempt, not a random one-off - and it fails
-/// every time on this machine. Waiting longer BETWEEN our external retries
-/// does nothing, since each retry replays the identical Stop -> Start ->
-/// RegisterShard sequence itself, always with the same ~2s gap.
-///
-/// The only lever available without vendor source is to make that specific
-/// restart fast enough to land inside 2 seconds. So before a retry, this
-/// starts the service ourselves (if it's stopped) and polls the real TCP
-/// port until it accepts a connection - which forces the .NET host's
-/// assemblies to be JITed and paged in ahead of time. When SetupManager
-/// then stops and restarts the now-warm service moments later, the OS can
-/// reuse cached pages/JITed code, so the restart itself should be much
-/// faster than the cold start these logs show.
-#[cfg(target_os = "windows")]
-fn warm_k2_configuration_service() {
-    let _ = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Start-Service -Name 'K2 Configuration Service' -ErrorAction SilentlyContinue",
-        ])
-        .output();
-
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while Instant::now() < deadline {
-        if std::net::TcpStream::connect_timeout(
-            &"127.0.0.1:5560".parse().unwrap(),
-            Duration::from_millis(500),
-        )
-        .is_ok()
-        {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-}
-
 /// Real root cause, confirmed on the actual machine (not the timing race
 /// this project chased earlier): the K2 Configuration Service's own log
 /// showed `Certificate not found: CN=LOCALHOST (CN=K2 On Premise Root,
@@ -1146,35 +1006,11 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
             std::fs::write(&xml_path, &silent_xml_contents)
                 .map_err(|e| format!("Failed to write answer file {}: {e}", xml_path.display()))?;
 
-            // Cleared once, up front, for the whole run - NOT per retry
-            // attempt. Retries after this rely on SetupManager's own
-            // journal to skip already-completed targets and go straight
-            // back to the failing one.
             clear_install_history_journal();
             exclude_k2_from_defender(&folder);
             clear_k2_generated_certificates();
 
-            const MAX_ATTEMPTS: u32 = 5;
-            let mut last_err = String::new();
-            for attempt in 1..=MAX_ATTEMPTS {
-                match run_real_installer_once(&folder, &xml_path) {
-                    Ok(message) => return Ok(message),
-                    Err(err) => {
-                        if attempt < MAX_ATTEMPTS && is_transient_service_race(&err) {
-                            warm_k2_configuration_service();
-                            last_err = err;
-                            continue;
-                        }
-                        if attempt < MAX_ATTEMPTS && is_stale_security_context(&err) {
-                            restart_k2_server_engine();
-                            last_err = err;
-                            continue;
-                        }
-                        return Err(err);
-                    }
-                }
-            }
-            Err(last_err)
+            run_real_installer_once(&folder, &xml_path)
         }
         #[cfg(not(target_os = "windows"))]
         {
