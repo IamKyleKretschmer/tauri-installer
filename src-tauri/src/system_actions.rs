@@ -1080,6 +1080,64 @@ fn wait_for_k2_server_port() {
     }
 }
 
+/// Real evidence (this project's own trace logs, both before and after the
+/// broad 5x retry loop was removed): the "K2 Server" Windows service starts
+/// and initializes well before the "System" account is created, so its live
+/// security/session state never picks up that account. When
+/// DeployPackage.exe later opens a fresh BaseAPI connection as System to
+/// deploy Management.kspx, that stale session breaks - either as
+/// `AuthenticationException: Primary Credentials Not Authenticated` or (seen
+/// in a later run) a raw `SocketException: An existing connection was
+/// forcibly closed by the remote host` mid-transfer, same underlying cause.
+/// Either way SetupManager treats it as fatal ("Internal error has caused
+/// the install to terminate") and stops outright with no attempt of its
+/// own to recover - restarting the actual K2 Server engine (not the
+/// dependent microservices the vendor package itself restarts) so it
+/// picks up the account, then retrying once, reliably clears it.
+#[cfg(target_os = "windows")]
+fn is_stale_security_context(detail: &str) -> bool {
+    detail.contains("Primary Credentials Not Authenticated")
+        || (detail.contains("Management.kspx") && detail.contains("forcibly closed"))
+        || (detail.contains("Management.kspx") && detail.contains("AuthenticationException"))
+}
+
+/// Restarts the actual K2 Server engine and polls its BaseAPI port until it
+/// accepts a connection again, for the specific "stale engine, freshly
+/// created account" mismatch documented on is_stale_security_context.
+/// SetupManager's own install-history journal already marks earlier steps
+/// (like creating the System account) complete, so the retry that follows
+/// this skips straight back to (re-)deploying Management.kspx rather than
+/// replaying the whole install.
+#[cfg(target_os = "windows")]
+fn restart_k2_server_engine() {
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Restart-Service -Name 'K2 Server' -Force -ErrorAction SilentlyContinue",
+        ])
+        .output();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:5555".parse().unwrap(),
+            Duration::from_millis(500),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // Give the engine a further moment to finish its own internal
+    // security-manager/session initialization after the port first opens -
+    // accepting a TCP connection is not proof the security subsystem behind
+    // it has finished loading.
+    std::thread::sleep(Duration::from_secs(10));
+}
+
 #[tauri::command]
 pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1098,6 +1156,10 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                 Ok(message) => Ok(message),
                 Err(err) if is_transient_service_race(&err) => {
                     wait_for_k2_server_port();
+                    run_real_installer_once(&folder, &xml_path)
+                }
+                Err(err) if is_stale_security_context(&err) => {
+                    restart_k2_server_engine();
                     run_real_installer_once(&folder, &xml_path)
                 }
                 Err(err) => Err(err),
