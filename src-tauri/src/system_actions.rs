@@ -910,6 +910,26 @@ fn find_setup_exe(folder: &std::path::Path) -> Result<PathBuf, String> {
         })
 }
 
+/// Real evidence: SetupManager's own "Version Conflict" dialog fires
+/// whenever it's run from anywhere OTHER than its own installed location
+/// (`C:\Program Files\K2\Setup\...`) against a machine with real installed
+/// state - independent of the database, Windows services, or registry
+/// (all confirmed clean in a real run that still hit this). Clicking its
+/// "Launch" button doesn't continue the process we spawned - it spawns a
+/// brand-new, detached SetupManager.exe from the installed location and
+/// lets ours exit, which we'd have no visibility into at all
+/// (Global.LaunchInstalledSetupManager in a real trace log). Once a real
+/// K2 component has actually been installed once, running from the
+/// installed-location copy directly - exactly what the dialog itself
+/// asks for - avoids the whole prompt and the untracked child process.
+fn resolve_setup_exe(extracted_folder: &std::path::Path) -> Result<PathBuf, String> {
+    let installed_location = PathBuf::from(r"C:\Program Files\K2\Setup\SourceCode.SetupManager.exe");
+    if installed_location.is_file() {
+        return Ok(installed_location);
+    }
+    find_setup_exe(extracted_folder)
+}
+
 /// The real SetupManager persists its own per-target completion journal
 /// to disk at `INSTALLDIR\Setup\InstallHistoryRepository.ihr` (plus a
 /// timestamped snapshot per run under `INSTALLDIR\Setup\State\`), rewriting
@@ -937,10 +957,11 @@ fn clear_install_history_journal() {
 /// its own journal, turning a 15-second retry into a 10-minute one.
 #[cfg(target_os = "windows")]
 fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path) -> Result<String, String> {
-    let exe_path = find_setup_exe(folder)?;
+    let exe_path = resolve_setup_exe(folder)?;
+    let working_dir = exe_path.parent().unwrap_or(folder);
 
     let mut child = Command::new(&exe_path)
-        .current_dir(folder)
+        .current_dir(working_dir)
         .arg(format!("/install:{}", xml_path.display()))
         .arg("/noval")
         // /noval only disables SetupManager's general answer-file
@@ -969,24 +990,21 @@ fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path)
         };
 
         // Real evidence: SetupManager's own "Version Conflict" dialog fires
-        // when the target database already has update-history rows recorded
-        // for this host (HostServer.UpdateHistory / the [UPDATE_HISTORY]
-        // token) that don't match a fresh install of this build - it's a
-        // genuine vendor safety check against silently reinstalling over an
-        // already-patched environment, not a bug in this answer file.
-        // Confirmed on a real run that launching from the installed
-        // location (C:\Program Files\K2\Setup\...), the dialog's own
-        // suggested fix, does NOT clear it either - the only two real ways
-        // out are dropping the existing database (for a genuinely fresh
-        // install) or using K2's real Update/upgrade workflow instead of
-        // Configure (which this wizard does not implement). Detected here
-        // so a customer/operator sees a clear next step instead of a raw
-        // dialog-log dump.
+        // whenever it's run from anywhere OTHER than its own installed
+        // location against a machine with real installed state -
+        // independent of the database, Windows services, or registry (all
+        // confirmed clean in a real run that still hit this). resolve_setup_exe
+        // now runs from the installed location whenever it exists, which is
+        // exactly what the dialog itself asks for, so this should only ever
+        // fire on a genuinely first-ever run (no installed copy yet) where
+        // something else has still left real state behind. Detected here so
+        // a customer/operator sees a clear next step instead of a raw,
+        // blocking GUI dialog they have no way to script past.
         if detail.contains("does not support updating the installed version") || detail.contains("Version Conflict") {
             return Err(format!(
-                "K2 detected an existing installation history in the target database for this host, from a previous install/fix pack that doesn't match this build \u{2014} it will not silently reinstall over it. \
-                 Launching the installer from its installed location (C:\\Program Files\\K2\\Setup\\...) does NOT clear this, despite what the dialog suggests. \
-                 To proceed, either (1) drop and recreate the K2 database if you intend a fresh install, or (2) use K2's official Update/upgrade workflow instead of Configure if you intend to upgrade the existing installation. Raw detail: {detail}"
+                "K2's SetupManager refused to continue with a \"Version Conflict\" prompt, which blocks silent/unattended installs since it requires a manual Launch/Exit click. \
+                 This normally only happens when running from somewhere other than the installed location (C:\\Program Files\\K2\\Setup\\...) - which this app now prefers automatically once that copy exists. \
+                 If you're still hitting this, K2 believes real state from a prior install is present on this host; a full reset (drop the database, remove the K2 Windows services, delete C:\\Program Files\\K2) is the reliable way to get a genuinely clean slate. Raw detail: {detail}"
             ));
         }
 
