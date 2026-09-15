@@ -301,21 +301,36 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // the claims identity/realm rows it normally would - the actual root
     // cause of a later "INSERT ... conflicted with the FOREIGN KEY
     // constraint FK_Identity_ClaimRealmIssuer_Identity_ClaimIssuer" failure
-    // deep in K2 Site component setup. Separately, [PRIMARY_WORKSPACE] gets
-    // "Populated ... with default environment field value of type Workspace
-    // URL" then set to NULL, and the still-unresolved "[PRIMARY_WORKSPACE]"
-    // bracket text later gets substituted into an XPath string literal for
-    // a Web.config patch (system.serviceModel/.../add[@baseAddress='...']),
-    // which is what actually threw "This is an unclosed string" - not a
-    // real syntax bug in the XPath template, just this run's actual root
-    // cause (an unset site URL) surfacing several layers downstream.
-    // [K2SFSITEURL]/[K2SFSITEURL_SSL] (SharePoint farm-facing site URL) are
-    // referenced the same way further into K2 Site setup; for this
-    // single-box install, the same host serves both roles.
+    // deep in K2 Site component setup. [K2SFSITEURL]/[K2SFSITEURL_SSL]
+    // (SharePoint farm-facing site URL) are referenced the same way further
+    // into K2 Site setup; for this single-box install, the same host serves
+    // both roles.
     ["K2SITEURL", httpSiteUrl],
     ["K2SITEURL_SSL", httpsSiteUrl],
     ["K2SFSITEURL", httpSiteUrl],
     ["K2SFSITEURL_SSL", httpsSiteUrl],
+    // Confirmed against a genuine captured K2 answer file: [PRIMARY_WORKSPACE]
+    // is NOT derived from K2SITEURL_SSL - it's its own plain token, set
+    // directly to the site's HTTPS URL (identical to LBSITENAME/K2SITEURL_SSL
+    // in the real capture), same as [PRIMARY_WORKSPACE_HOST]/[..._SCHEME].
+    // Left undefined, it stays literal "[PRIMARY_WORKSPACE]" text, which is
+    // what actually threw "This is an unclosed string" once that raw bracket
+    // text got substituted into an XPath string literal for a Web.config
+    // patch (system.serviceModel/.../add[@baseAddress='[PRIMARY_WORKSPACE]/...']).
+    // The WS_/RT_/DE_ *_FIELDNAME tokens are fixed Environment Library field
+    // labels (not site-specific) that the same "Update Environment Library"
+    // targets need for Designer/Runtime, matching the real capture verbatim -
+    // included now to avoid hitting this identical bug on those next.
+    ["PRIMARY_WORKSPACE", httpsSiteUrl],
+    ["PRIMARY_WORKSPACE_HOST", siteHost],
+    ["PRIMARY_WORKSPACE_SCHEME", "https"],
+    ["WS_FIELDNAME", "Web Service URL"],
+    ["RT_FIELDNAME", "SmartForms Runtime"],
+    ["DE_FIELDNAME", "SmartForms Designer"],
+    ["WS_FIELDNAME_SSL", "Web Service URL SSL"],
+    ["RT_FIELDNAME_SSL", "SmartForms Runtime SSL"],
+    ["DE_FIELDNAME_SSL", "SmartForms Designer SSL"],
+    ["DE_FIELDNAME_RUNTIME", "SmartForms Designer Runtime"],
   ];
 
   const componentsXml = COMPONENTS.map((c) => `    <${c} />`).join("\n");
