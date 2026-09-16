@@ -71,6 +71,11 @@ export function ActiveDirectoryStep({
         onChange={(e) => update({ servicePassword: e.target.value })}
       />
 
+      <p className="step-intro">
+        This account is also used as the low-trust JSSP service credential (shown as a separate prompt in the
+        original K2 Setup Manager).
+      </p>
+
       <TextInput
         label="K2 administrators group"
         hint="AD group whose members will have K2 administrator rights."
