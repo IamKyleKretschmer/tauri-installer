@@ -404,17 +404,6 @@ function splitPathAndMessage(raw: string): [string, string] {
   return separatorIndex === -1 ? [raw, raw] : [raw.slice(0, separatorIndex), raw.slice(separatorIndex + 1)];
 }
 
-/** Copies any real K2 files provided, then scaffolds placeholders for whatever's still empty. */
-export async function deployK2Payload(sourceRoot: string): Promise<ActionResult> {
-  const copyResult = await copyK2Files(sourceRoot);
-  if (!copyResult.success) return copyResult;
-
-  const scaffoldResult = await scaffoldK2PlaceholderPages();
-  if (!scaffoldResult.success) return scaffoldResult;
-
-  return { success: true, message: `${copyResult.message}. ${scaffoldResult.message}.` };
-}
-
 /** Disables TLS 1.0/1.1 machine-wide via the Schannel registry keys. */
 export async function disableLegacyTls(): Promise<ActionResult> {
   try {

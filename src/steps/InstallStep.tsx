@@ -5,7 +5,6 @@ import type { FinishedSummary } from "./FinishedStep";
 import type { PrerequisiteItem, ProductInfo } from "../services/installer.service";
 import {
   configureIisSite,
-  deployK2Payload,
   disableLegacyTls,
   downloadK2Package,
   dropK2Database,
@@ -242,8 +241,15 @@ export function InstallStep({
         const installationFolder = config.installationFolder.trim();
         if (!installationFolder) {
           // No real, already-extracted "Installation" folder configured -
-          // fall back to the file-copy simulation.
-          return deployK2Payload(config.sourceFilesPath);
+          // fail loudly rather than silently running a file-copy
+          // simulation that looks identical to a real install on the
+          // Finished screen (green checkmarks, "K2 is ready") while
+          // nothing was actually installed.
+          return {
+            success: false,
+            message:
+              'Cannot find a file named "Nintex Automation K2" to run the install from. Extract the K2 installer anywhere on this machine, set its path on the IIS & .NET step, and re-run.',
+          };
         }
         // K2's JSSP validator rejects the service account outright if it's a
         // local admin on this machine, regardless of how it got that way
