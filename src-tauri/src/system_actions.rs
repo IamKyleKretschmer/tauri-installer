@@ -948,6 +948,42 @@ fn clear_install_history_journal() {
     let _ = std::fs::remove_dir_all(setup_dir.join("State"));
 }
 
+/// Real root cause, confirmed on a real machine: K2's own SetupManager
+/// resolves the bare command name `dotnet` via ordinary PATH search when it
+/// checks the ".NET Core Hosting and Runtime Bundle" component dependency
+/// (ProcessWrapper.Execute: "Start executing process: dotnet"). On a
+/// machine with an older, 32-bit `dotnet.exe` earlier on PATH than the real
+/// 64-bit one (confirmed: `C:\Program Files (x86)\dotnet\` ahead of
+/// `C:\Program Files\dotnet\`) - not unheard of on a box with a lot of
+/// accumulated dev tooling - that resolves to the x86 copy's own, older set
+/// of runtimes, so `dotnet --list-runtimes` silently reports the wrong
+/// answer and the dependency check fails even though the real 64-bit
+/// runtime satisfies it. Rather than requiring every operator to manually
+/// reorder their machine's PATH (fragile, easy to forget, and this app has
+/// no way to make a customer do it), fix it at the one point that actually
+/// matters: give the SetupManager child process (and anything it spawns,
+/// since children inherit their parent's environment) a PATH with the real
+/// 64-bit dotnet directory pinned first, regardless of what the wider
+/// machine's PATH looks like.
+#[cfg(target_os = "windows")]
+fn dotnet_first_path() -> String {
+    const REAL_DOTNET_DIR: &str = r"C:\Program Files\dotnet";
+    let current = std::env::var("PATH").unwrap_or_default();
+    if !std::path::Path::new(REAL_DOTNET_DIR).join("dotnet.exe").is_file() {
+        // Nothing to pin - leave PATH exactly as this process already has
+        // it rather than inventing a directory that doesn't exist.
+        return current;
+    }
+    let mut entries: Vec<String> = current
+        .split(';')
+        .filter(|entry| !entry.is_empty())
+        .filter(|entry| !entry.eq_ignore_ascii_case(REAL_DOTNET_DIR))
+        .map(|entry| entry.to_string())
+        .collect();
+    entries.insert(0, REAL_DOTNET_DIR.to_string());
+    entries.join(";")
+}
+
 /// Runs SetupManager.exe once against the given answer file and returns its
 /// formatted result, exactly as a single attempt. Does NOT touch the install
 /// history journal itself - callers control that, since clearing it before
@@ -962,6 +998,7 @@ fn run_real_installer_once(folder: &std::path::Path, xml_path: &std::path::Path)
 
     let mut child = Command::new(&exe_path)
         .current_dir(working_dir)
+        .env("PATH", dotnet_first_path())
         .arg(format!("/install:{}", xml_path.display()))
         .arg("/noval")
         // /noval only disables SetupManager's general answer-file
