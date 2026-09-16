@@ -365,26 +365,79 @@ foreach ($key in $keys) {
 pub fn check_dotnet_hosting_bundle() -> CheckResult {
     #[cfg(target_os = "windows")]
     {
-        let candidates = [
-            r"C:\Program Files\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
-            r"C:\Program Files (x86)\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
-        ];
-        if candidates.iter().any(|path| std::path::Path::new(path).is_file()) {
-            CheckResult {
-                pass: true,
-                detail: "ASP.NET Core Module V2 (Hosting Bundle) installed".to_string(),
-            }
+        // Real bug found the hard way: checking only for the ASP.NET Core
+        // Module V2's file existence (aspnetcorev2.dll) is not enough - that
+        // file persists across upgrades, so a machine with an OLDER Hosting
+        // Bundle already installed (e.g. one bundling 9.0.8) passes a plain
+        // existence check while still failing K2's real dependency check,
+        // which is a version comparison
+        // (InstallChecker.DependencyMetDotNetCore: runs `dotnet
+        // --list-runtimes` and requires Microsoft.AspNetCore.App >= 10.0.8,
+        // GreaterThanOrEqualTo). Mirror that exact logic here instead.
+        const REQUIRED: (u32, u32, u32) = (10, 0, 8);
+        // Prefer the real 64-bit dotnet.exe explicitly - confirmed on a
+        // real machine that a stale x86 copy with no matching runtimes can
+        // sit earlier on PATH than the real one, making a bare `dotnet`
+        // invocation report the wrong (or no) runtimes entirely.
+        let dotnet_cmd = if std::path::Path::new(r"C:\Program Files\dotnet\dotnet.exe").is_file() {
+            r#""C:\Program Files\dotnet\dotnet.exe" --list-runtimes"#.to_string()
         } else {
-            CheckResult {
-                pass: false,
-                detail: "Not found. Required by the K2 Configuration Service component - install the .NET Core Hosting Bundle (matching the version this K2 build ships) before running the real install.".to_string(),
+            "dotnet --list-runtimes".to_string()
+        };
+        match run_powershell(&dotnet_cmd) {
+            Some(output) => {
+                let best = output
+                    .lines()
+                    .filter_map(|line| {
+                        let rest = line.strip_prefix("Microsoft.AspNetCore.App ")?;
+                        let version = rest.split_whitespace().next()?;
+                        parse_version(version)
+                    })
+                    .max();
+                match best {
+                    Some(version) if version >= REQUIRED => CheckResult {
+                        pass: true,
+                        detail: format!(
+                            "ASP.NET Core Hosting Bundle {}.{}.{} installed",
+                            version.0, version.1, version.2
+                        ),
+                    },
+                    Some(version) => CheckResult {
+                        pass: false,
+                        detail: format!(
+                            "Found ASP.NET Core {}.{}.{}, but the K2 Configuration Service component requires {}.{}.{} or later. Install the current .NET Core Hosting Bundle before running the real install.",
+                            version.0, version.1, version.2, REQUIRED.0, REQUIRED.1, REQUIRED.2
+                        ),
+                    },
+                    None => CheckResult {
+                        pass: false,
+                        detail: "Not found. Required by the K2 Configuration Service component - install the .NET Core Hosting Bundle (not just the SDK) before running the real install.".to_string(),
+                    },
+                }
             }
+            None => CheckResult {
+                pass: false,
+                detail: "Could not run 'dotnet --list-runtimes' - .NET does not appear to be installed.".to_string(),
+            },
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
         unsupported(".NET Core Hosting Bundle")
     }
+}
+
+/// Parses a dotnet runtime version string like "10.0.8" into its
+/// (major, minor, patch) tuple for a GreaterThanOrEqualTo comparison,
+/// matching K2's own InstallChecker.Valid logic. Returns None for
+/// anything that doesn't parse cleanly (e.g. a preview/rc suffix).
+#[cfg(target_os = "windows")]
+fn parse_version(raw: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = raw.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next()?.parse().ok()?;
+    let patch: u32 = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
 }
 
 /// TLS 1.2 is on by default on Windows Server 2016+/Windows 10+ unless a

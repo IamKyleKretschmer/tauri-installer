@@ -152,13 +152,29 @@ if ($hasMsvc) {
 # Service (an ASP.NET Core app hosted in IIS) needs. Uses aka.ms's
 # channel-latest redirect rather than a hardcoded exact version, since
 # pinning an exact patch here would go stale as Microsoft ships updates.
-$aspNetCoreModulePaths = @(
-    "C:\Program Files\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
-    "C:\Program Files (x86)\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
-)
-if ($aspNetCoreModulePaths | Where-Object { Test-Path $_ }) {
-    Write-Host "[skip] ASP.NET Core Hosting Bundle already installed." -ForegroundColor DarkGray
+#
+# Real bug found the hard way: checking only for the ASP.NET Core Module
+# V2's file existence isn't enough - that file persists across upgrades,
+# so a machine with an OLDER Hosting Bundle already installed (bundling
+# e.g. 9.0.8) passes a plain existence check while still failing K2's
+# real dependency check, which compares actual runtime versions. Check
+# the real version via `dotnet --list-runtimes` instead, mirroring
+# check_dotnet_hosting_bundle in system_checks.rs.
+$requiredVersion = [Version]"10.0.8"
+$installedAspNetCoreVersions = if ($dotnetExe) {
+    (& $dotnetExe --list-runtimes 2>$null) |
+        Where-Object { $_ -match '^Microsoft\.AspNetCore\.App (\d+\.\d+\.\d+)' } |
+        ForEach-Object { [Version]$Matches[1] }
 } else {
+    @()
+}
+$bestAspNetCoreVersion = $installedAspNetCoreVersions | Sort-Object -Descending | Select-Object -First 1
+if ($bestAspNetCoreVersion -and $bestAspNetCoreVersion -ge $requiredVersion) {
+    Write-Host "[skip] ASP.NET Core Hosting Bundle already installed: $bestAspNetCoreVersion" -ForegroundColor DarkGray
+} else {
+    if ($bestAspNetCoreVersion) {
+        Write-Host "[install] Found ASP.NET Core $bestAspNetCoreVersion, but K2 needs $requiredVersion or later - upgrading..." -ForegroundColor Cyan
+    }
     Write-Host "[install] ASP.NET Core Hosting Bundle (.NET 10)..." -ForegroundColor Cyan
     $hostingBundleInstaller = Join-Path $tempDir "dotnet-hosting-win.exe"
     Invoke-WebRequest -Uri "https://aka.ms/dotnet/10.0/dotnet-hosting-win.exe" -OutFile $hostingBundleInstaller
