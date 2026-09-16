@@ -114,6 +114,37 @@ if ($hasMsvc) {
     Write-Host "MSVC Build Tools installed." -ForegroundColor Green
 }
 
+# --- ASP.NET Core Hosting Bundle (K2 install prerequisite) --------------
+# Not needed to build/run this wizard itself - this is a real K2
+# prerequisite, checked by check_dotnet_hosting_bundle in
+# system_checks.rs: SetupManager's own pre-flight validation fails fast
+# with "Dependency for 'Runtime' not met" on a machine that only has the
+# .NET SDK installed, since the SDK and the Hosting Bundle are separate
+# installers - the SDK doesn't register IIS's ASP.NET Core Module V2,
+# which is what this actually checks for and what K2's Configuration
+# Service (an ASP.NET Core app hosted in IIS) needs. Uses aka.ms's
+# channel-latest redirect rather than a hardcoded exact version, since
+# pinning an exact patch here would go stale as Microsoft ships updates.
+$aspNetCoreModulePaths = @(
+    "C:\Program Files\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
+    "C:\Program Files (x86)\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
+)
+if ($aspNetCoreModulePaths | Where-Object { Test-Path $_ }) {
+    Write-Host "[skip] ASP.NET Core Hosting Bundle already installed." -ForegroundColor DarkGray
+} else {
+    Write-Host "[install] ASP.NET Core Hosting Bundle (.NET 10)..." -ForegroundColor Cyan
+    $hostingBundleInstaller = Join-Path $tempDir "dotnet-hosting-win.exe"
+    Invoke-WebRequest -Uri "https://aka.ms/dotnet/10.0/dotnet-hosting-win.exe" -OutFile $hostingBundleInstaller
+    Start-Process -FilePath $hostingBundleInstaller -ArgumentList "/quiet", "/norestart" -Wait
+    # The Hosting Bundle installer registers its IIS module but an
+    # already-running IIS won't pick it up until its worker processes
+    # restart - matches the real install guidance to run iisreset after
+    # installing this.
+    Write-Host "Restarting IIS so it picks up the new module..." -ForegroundColor Cyan
+    iisreset | Out-Null
+    Write-Host "ASP.NET Core Hosting Bundle installed." -ForegroundColor Green
+}
+
 Write-Host ""
 Write-Host "Setup complete. Close this PowerShell window and open a fresh one, then run:" -ForegroundColor Yellow
 Write-Host "  cd C:\k2-installer"
