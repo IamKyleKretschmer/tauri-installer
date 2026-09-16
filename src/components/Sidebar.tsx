@@ -98,6 +98,7 @@ const STEPS: StepDef[] = [
   { id: "iis-net", label: "IIS & .NET", icon: GridIcon },
   { id: "active-directory", label: "Active Directory", icon: NetworkIcon },
   { id: "network-tls", label: "Network & TLS", icon: GlobeIcon },
+  { id: "license", label: "License", icon: EditIcon },
   { id: "review", label: "Review", icon: ListIcon },
   { id: "install", label: "Install", icon: RefreshIcon },
 ];

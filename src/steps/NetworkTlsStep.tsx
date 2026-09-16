@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { Badge, TextInput } from "../components/primitives";
 import type { NetworkChecks } from "../services/installer.service";
 import { getMachineFqdn, getNetworkChecks } from "../services/installer.service";
@@ -12,14 +11,10 @@ export function NetworkTlsStep({
   config,
   onChange,
   onLoaded,
-  licenseKey,
-  onLicenseKeyChange,
 }: {
   config: NetworkTlsConfig;
   onChange: (config: NetworkTlsConfig) => void;
   onLoaded: (checks: NetworkChecks) => void;
-  licenseKey: string;
-  onLicenseKeyChange: (value: string) => void;
 }) {
   const [local, setLocal] = useState(config);
   const [checks, setChecks] = useState<NetworkChecks | null>(null);
@@ -54,18 +49,6 @@ export function NetworkTlsStep({
   function handleHostnameChange(value: string) {
     userEditedHostname.current = true;
     update({ hostname: value });
-  }
-
-  async function handleLicenseKeyFocus() {
-    if (licenseKey) return;
-    try {
-      const clipboardText = await readText();
-      if (clipboardText) {
-        onLicenseKeyChange(clipboardText.trim());
-      }
-    } catch {
-      // Clipboard read can be denied/unavailable - fall back to manual paste.
-    }
   }
 
   // Rendered with a fixed set of rows even before `checks` resolves (as
@@ -136,14 +119,6 @@ export function NetworkTlsStep({
         hint="Used to generate service URLs. Must match your SSL certificate's CN or SAN."
         value={local.hostname}
         onChange={(e) => handleHostnameChange(e.target.value)}
-      />
-
-      <TextInput
-        label="License key"
-        hint="Click into the field to paste from your clipboard automatically."
-        value={licenseKey}
-        onChange={(e) => onLicenseKeyChange(e.target.value)}
-        onFocus={handleLicenseKeyFocus}
       />
     </div>
   );

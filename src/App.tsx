@@ -15,6 +15,7 @@ import { ActiveDirectoryStep } from "./steps/ActiveDirectoryStep";
 import type { ActiveDirectoryConfig } from "./steps/ActiveDirectoryStep";
 import { NetworkTlsStep } from "./steps/NetworkTlsStep";
 import type { NetworkTlsConfig } from "./steps/NetworkTlsStep";
+import { LicenseStep } from "./steps/LicenseStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { InstallStep } from "./steps/InstallStep";
 import { FinishedStep, formatElapsed } from "./steps/FinishedStep";
@@ -58,6 +59,7 @@ export type WizardStep =
   | "iis-net"
   | "active-directory"
   | "network-tls"
+  | "license"
   | "review"
   | "install";
 
@@ -70,6 +72,7 @@ const ORDER: WizardStep[] = [
   "iis-net",
   "active-directory",
   "network-tls",
+  "license",
   "review",
   "install",
 ];
@@ -382,16 +385,18 @@ function App() {
       nextDisabled = !adDomain || adTesting;
       break;
     case "network-tls":
+      body = <NetworkTlsStep config={networkConfig} onChange={setNetworkConfig} onLoaded={setNetworkChecks} />;
+      nextDisabled = !networkChecks;
+      break;
+    case "license":
       body = (
-        <NetworkTlsStep
-          config={networkConfig}
-          onChange={setNetworkConfig}
-          onLoaded={setNetworkChecks}
+        <LicenseStep
+          installationFolder={iisConfig.installationFolder}
           licenseKey={licenseKey}
           onLicenseKeyChange={setLicenseKey}
         />
       );
-      nextDisabled = !networkChecks;
+      nextDisabled = !licenseKey.trim();
       break;
     case "review": {
       body = (
