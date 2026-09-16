@@ -25,9 +25,32 @@
 #>
 
 $ErrorActionPreference = "Stop"
+# PowerShell 7.3+ treats a native command's stderr output as a terminating
+# error under $ErrorActionPreference = "Stop" by default. That combination
+# bit this script for real: a machine with a broken/shadowed `dotnet` on
+# PATH (e.g. an x86 copy ahead of the real x64 one, seen earlier in this
+# project) makes `dotnet --version` write to stderr, which aborted this
+# entire script right at the very first check - before the Hosting Bundle
+# step below ever ran. Disable that so a broken tool on PATH can't take
+# down every step after it; each step still fails loudly on its own via
+# try/catch where that matters.
+$PSNativeCommandUseErrorActionPreference = $false
 
 function Test-Command($name) {
     return [bool](Get-Command $name -ErrorAction SilentlyContinue)
+}
+
+# Prefer the real 64-bit dotnet.exe explicitly rather than trusting
+# whatever `dotnet` resolves to on PATH - confirmed on a real machine that
+# an x86 copy of dotnet.exe (with no SDKs registered to it) can sit earlier
+# on PATH than the real one, making bare `dotnet` calls fail even though
+# .NET is genuinely installed.
+function Get-DotnetExe {
+    $preferred = "C:\Program Files\dotnet\dotnet.exe"
+    if (Test-Path $preferred) { return $preferred }
+    $onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    return $null
 }
 
 function Assert-Admin {
@@ -71,14 +94,18 @@ if (Test-Command node) {
 # 4.8 reference assemblies for actually targeting net48 ship as part of
 # the SDK's workload packs on recent SDK versions, so just the SDK itself
 # is normally enough.
-if (Test-Command dotnet) {
-    Write-Host "[skip] .NET SDK already installed: $(dotnet --version 2>$null)" -ForegroundColor DarkGray
+$dotnetExe = Get-DotnetExe
+$dotnetSdks = if ($dotnetExe) { & $dotnetExe --list-sdks 2>$null } else { $null }
+if ($dotnetSdks) {
+    Write-Host "[skip] .NET SDK already installed:" -ForegroundColor DarkGray
+    $dotnetSdks | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
 } else {
     Write-Host "[install] .NET 8 SDK..." -ForegroundColor Cyan
     $dotnetInstallScript = Join-Path $tempDir "dotnet-install.ps1"
     Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $dotnetInstallScript
     & $dotnetInstallScript -Channel 8.0 -InstallDir "C:\Program Files\dotnet"
     [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "Machine") + ";C:\Program Files\dotnet", "Machine")
+    $dotnetExe = "C:\Program Files\dotnet\dotnet.exe"
     Write-Host ".NET SDK installed to C:\Program Files\dotnet." -ForegroundColor Green
 }
 
