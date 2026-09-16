@@ -322,6 +322,10 @@ body,
   background: #fbe4e1;
   color: #c0392b;
 }
+.checklist-item__icon--pending {
+  background: #f0f1f4;
+  color: #8a8f9a;
+}
 
 .checklist-item__label {
   font-weight: 600;

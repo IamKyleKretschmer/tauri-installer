@@ -68,6 +68,12 @@ export function NetworkTlsStep({
     }
   }
 
+  // Rendered with a fixed set of rows even before `checks` resolves (as
+  // "Checking..." placeholders) rather than a single line of loading
+  // text - that single line used to collapse to four rows once the async
+  // check finished, pushing the hostname/license key fields below it down
+  // a few seconds in, right where an operator would naturally be about to
+  // click something (a real misclick hazard, not just a cosmetic flash).
   const rows = checks
     ? [
         {
@@ -101,7 +107,12 @@ export function NetworkTlsStep({
           badge: checks.ipv4.pass ? "Not active" : "Active",
         },
       ]
-    : [];
+    : [
+        { id: "tls12", label: "TLS 1.2", description: "Checking...", pass: null, badge: "Checking..." },
+        { id: "tls-legacy", label: "TLS 1.0 / 1.1", description: "Checking...", pass: null, badge: "Checking..." },
+        { id: "ipv4", label: "IPv4", description: "Checking...", pass: null, badge: "Checking..." },
+        { id: "ipv6-only", label: "IPv6-only mode", description: "Checking...", pass: null, badge: "Checking..." },
+      ];
 
   return (
     <div>
@@ -109,19 +120,15 @@ export function NetworkTlsStep({
       <p className="step-intro">K2 requires TLS 1.2 and IPv4. We'll verify and configure these now.</p>
 
       <div className="prereq-list">
-        {checks ? (
-          rows.map((row) => (
-            <div className="prereq-row" key={row.id}>
-              <div>
-                <div className="prereq-row__name">{row.label}</div>
-                <div className="prereq-row__desc">{row.description}</div>
-              </div>
-              <Badge tone={row.pass ? "pass" : "caution"}>{row.badge}</Badge>
+        {rows.map((row) => (
+          <div className="prereq-row" key={row.id}>
+            <div>
+              <div className="prereq-row__name">{row.label}</div>
+              <div className="prereq-row__desc">{row.description}</div>
             </div>
-          ))
-        ) : (
-          <p className="step-intro">Checking TLS and network configuration...</p>
-        )}
+            <Badge tone={row.pass === null ? "neutral" : row.pass ? "pass" : "caution"}>{row.badge}</Badge>
+          </div>
+        ))}
       </div>
 
       <TextInput
