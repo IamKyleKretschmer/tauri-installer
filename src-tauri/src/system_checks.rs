@@ -352,6 +352,41 @@ foreach ($key in $keys) {
     }
 }
 
+/// Real trace log evidence: a fresh machine's install fails fast in
+/// SetupManager's own pre-flight validation with "Dependency for 'Runtime'
+/// not met" - ComponentDependency.Met logs it explicitly requiring
+/// ".NET Core Hosting and Runtime Bundle" for the K2 Configuration
+/// Service component (an ASP.NET Core app hosted in IIS). Detected here
+/// by checking for the ASP.NET Core Module V2's actual installed file
+/// (what the Hosting Bundle installer places into IIS) rather than a
+/// version-specific registry key, since K2 doesn't pin an exact bundle
+/// version this app can reliably predict.
+#[tauri::command]
+pub fn check_dotnet_hosting_bundle() -> CheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = [
+            r"C:\Program Files\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
+            r"C:\Program Files (x86)\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll",
+        ];
+        if candidates.iter().any(|path| std::path::Path::new(path).is_file()) {
+            CheckResult {
+                pass: true,
+                detail: "ASP.NET Core Module V2 (Hosting Bundle) installed".to_string(),
+            }
+        } else {
+            CheckResult {
+                pass: false,
+                detail: "Not found. Required by the K2 Configuration Service component - install the .NET Core Hosting Bundle (matching the version this K2 build ships) before running the real install.".to_string(),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsupported(".NET Core Hosting Bundle")
+    }
+}
+
 /// TLS 1.2 is on by default on Windows Server 2016+/Windows 10+ unless a
 /// SCHANNEL registry override explicitly disables it, so an absent key
 /// means enabled, not unknown.

@@ -108,9 +108,12 @@ export async function getPrerequisites(systemChecks: SystemCheckItem[]): Promise
   const iis = findStatus("iis");
   const dotnet = findStatus("dotnet");
 
-  const [vcredist, domain] = await Promise.all([
+  const [vcredist, domain, hostingBundle] = await Promise.all([
     tauriBridge.checkVcRedist().catch(() => ({ pass: false, detail: "Could not determine VC++ Redistributable status" })),
     tauriBridge.checkDomainJoined().catch(() => ({ pass: false, detail: "Could not determine domain membership" })),
+    tauriBridge
+      .checkDotnetHostingBundle()
+      .catch(() => ({ pass: false, detail: "Could not determine .NET Core Hosting Bundle status" })),
   ]);
 
   return [
@@ -146,6 +149,20 @@ export async function getPrerequisites(systemChecks: SystemCheckItem[]): Promise
       name: "VC++ Redistributable",
       description: vcredist.detail,
       status: vcredist.pass ? "present" : "will-install",
+    },
+    {
+      id: "hostingBundle",
+      name: ".NET Core Hosting Bundle",
+      // Real trace log evidence: a fresh machine's install fails fast in
+      // SetupManager's own pre-flight validation ("Dependency for 'Runtime'
+      // not met") when this is missing - required by the K2 Configuration
+      // Service component. Blocked, not will-install, since this wizard
+      // has no way to know which exact bundle version this K2 build needs
+      // and can't silently install the wrong one.
+      description: hostingBundle.pass
+        ? hostingBundle.detail
+        : ".NET Core Hosting Bundle not found. Required by the K2 Configuration Service component - install it (matching the version this K2 build ships) before running the real install.",
+      status: hostingBundle.pass ? "present" : "blocked",
     },
   ];
 }
