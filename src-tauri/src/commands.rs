@@ -148,7 +148,7 @@ pub fn get_installed_k2_version() -> Option<String> {
 /// checks DotNetRunner's own dev build output (`dotnet build` from the
 /// DotNetRunner/ directory) so `npm run tauri dev` works without a manual
 /// copy step.
-fn dotnet_runner_path() -> PathBuf {
+pub(crate) fn dotnet_runner_path() -> PathBuf {
     let mut adjacent = std::env::current_exe().unwrap_or_default();
     adjacent.pop();
     adjacent.push("DotNetRunner.exe");

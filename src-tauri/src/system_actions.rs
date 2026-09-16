@@ -1216,8 +1216,50 @@ fn restart_k2_server_engine() {
     std::thread::sleep(Duration::from_secs(10));
 }
 
+/// Real evidence, confirmed across two separate runs: a package deployment
+/// (seen on both "Management_update4.kspx" and other packages) can crash
+/// with a raw `NullReferenceException` inside the vendor's own
+/// `DeploySessionResultsRecievedState.Execute` after reporting "Deploying 0
+/// of N" - i.e. the deployment session got an empty/malformed result set
+/// back and the result-parsing code doesn't handle that gracefully. Unlike
+/// the two retry classes above (genuine timing races where the database is
+/// fine and should be preserved), this looks like a symptom of
+/// inconsistent/partially-deployed state built up across retries against
+/// the same database - the practical fix is a genuinely fresh database,
+/// not just retrying the same deployment again against the same one.
+#[cfg(target_os = "windows")]
+fn is_stale_deployment_state(detail: &str) -> bool {
+    detail.contains("DeploySessionResultsRecievedState") && detail.contains("NullReferenceException")
+}
+
+/// Drops and recreates the K2 database via the same DotNetRunner path
+/// test_sql_connection/drop_k2_database use, so the retry after this gets
+/// a genuinely clean database instead of resuming onto whatever
+/// partially-deployed state caused is_stale_deployment_state. Errors are
+/// intentionally swallowed (best-effort) - if this fails, the following
+/// retry will just fail again with a clearer, real error instead of this
+/// recovery attempt masking it.
+#[cfg(target_os = "windows")]
+fn reset_k2_database(instance: &str, auth_mode: &str, username: &str, password: &str, database: &str) {
+    let runner = crate::commands::dotnet_runner_path();
+    let _ = Command::new(&runner)
+        .args(["drop-database", instance, auth_mode, username, password, database])
+        .output();
+    let _ = Command::new(&runner)
+        .args(["test-sql", instance, auth_mode, username, password, database])
+        .output();
+}
+
 #[tauri::command]
-pub async fn run_real_installer(installation_folder: String, silent_xml_contents: String) -> Result<String, String> {
+pub async fn run_real_installer(
+    installation_folder: String,
+    silent_xml_contents: String,
+    sql_instance: String,
+    sql_auth_mode: String,
+    sql_username: String,
+    sql_password: String,
+    sql_database: String,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
         {
@@ -1240,12 +1282,29 @@ pub async fn run_real_installer(installation_folder: String, silent_xml_contents
                     restart_k2_server_engine();
                     run_real_installer_once(&folder, &xml_path)
                 }
+                Err(err) if is_stale_deployment_state(&err) => {
+                    reset_k2_database(&sql_instance, &sql_auth_mode, &sql_username, &sql_password, &sql_database);
+                    // A fresh database has none of the earlier targets'
+                    // completions recorded against it - force a full
+                    // replay from scratch rather than resuming a journal
+                    // that thinks most of the install already happened.
+                    clear_install_history_journal();
+                    run_real_installer_once(&folder, &xml_path)
+                }
                 Err(err) => Err(err),
             }
         }
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = (installation_folder, silent_xml_contents);
+            let _ = (
+                installation_folder,
+                silent_xml_contents,
+                sql_instance,
+                sql_auth_mode,
+                sql_username,
+                sql_password,
+                sql_database,
+            );
             unsupported("Running the real K2 installer")
         }
     })

@@ -102,8 +102,20 @@ export const tauriBridge = {
   copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
   downloadK2Package: (packageSource: string) => invoke<string>("download_k2_package", { packageSource }),
   extractK2Package: (archivePath: string) => invoke<string>("extract_k2_package", { archivePath }),
-  runRealInstaller: (installationFolder: string, silentXmlContents: string) =>
-    invoke<string>("run_real_installer", { installationFolder, silentXmlContents }),
+  runRealInstaller: (
+    installationFolder: string,
+    silentXmlContents: string,
+    sql: { instance: string; authMode: string; username: string; password: string; database: string },
+  ) =>
+    invoke<string>("run_real_installer", {
+      installationFolder,
+      silentXmlContents,
+      sqlInstance: sql.instance,
+      sqlAuthMode: sql.authMode,
+      sqlUsername: sql.username,
+      sqlPassword: sql.password,
+      sqlDatabase: sql.database,
+    }),
   getLatestInstallerLogLine: () => invoke<string | null>("get_latest_installer_log_line"),
   getMachineKey: (installationFolder: string) => invoke<string>("get_machine_key", { installationFolder }),
   findK2InstallationFolder: () => invoke<string | null>("find_installation_folder"),

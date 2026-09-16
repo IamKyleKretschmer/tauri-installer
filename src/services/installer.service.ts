@@ -377,9 +377,19 @@ export async function extractK2Package(archivePath: string): Promise<ExtractResu
  * contents, standing in for Initialize-Install's
  * `.\SourceCode.SetupManager.exe /install:"$_silentXml" /noval`.
  */
-export async function runRealInstaller(installationFolder: string, silentXmlContents: string): Promise<ActionResult> {
+export async function runRealInstaller(
+  installationFolder: string,
+  silentXmlContents: string,
+  sqlConfig: SqlConnectionTestParams,
+): Promise<ActionResult> {
   try {
-    const message = await tauriBridge.runRealInstaller(installationFolder, silentXmlContents);
+    const message = await tauriBridge.runRealInstaller(installationFolder, silentXmlContents, {
+      instance: sqlConfig.instance,
+      authMode: sqlConfig.authMode,
+      username: sqlConfig.username,
+      password: sqlConfig.password,
+      database: sqlConfig.database,
+    });
     return { success: true, message };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };

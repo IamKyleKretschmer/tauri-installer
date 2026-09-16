@@ -278,7 +278,14 @@ export function InstallStep({
           });
         }, 2000);
         try {
-          return await runRealInstaller(config.installationFolder, xml);
+          const sql = sqlConfigRef.current;
+          return await runRealInstaller(config.installationFolder, xml, {
+            instance: sql.instance,
+            authMode: sql.authMode,
+            username: sql.username,
+            password: sql.password,
+            database: sql.databaseName,
+          });
         } finally {
           window.clearInterval(pollHandle);
           setLiveInstallerStatus(null);
