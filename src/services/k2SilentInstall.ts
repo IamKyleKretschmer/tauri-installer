@@ -331,6 +331,19 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["RT_FIELDNAME_SSL", "SmartForms Runtime SSL"],
     ["DE_FIELDNAME_SSL", "SmartForms Designer SSL"],
     ["DE_FIELDNAME_RUNTIME", "SmartForms Designer Runtime"],
+    // Real evidence: the vendor's own ClaimsConfig.cs doc comment shows the
+    // exact XML this feeds - <ClaimIssuer Name="K2 Windows STS"
+    // Issuer="WindowsSTS" ThumbPrint="[SP_CERT_THUMBPRINT_WS]" .../> - and
+    // the genuine captured answer file sets this to a real cert thumbprint.
+    // Left undefined here, the target that creates the base K2 Windows/Forms
+    // STS ClaimIssuer rows never ran at all in a real trace (zero
+    // ClaimIssuer INSERTs anywhere in the whole run) - the actual root
+    // cause of a later "INSERT ... conflicted with the FOREIGN KEY
+    // constraint FK_Identity_ClaimRealmIssuer_Identity_ClaimIssuer" failure,
+    // not a database or vendor bug. Reuse the SSL certificate thumbprint
+    // already selected on the IIS & .NET step rather than asking for a
+    // second one - it's the same real cert being bound to this site.
+    ["SP_CERT_THUMBPRINT_WS", iisConfig.sslCertificate || ""],
   ];
 
   const componentsXml = COMPONENTS.map((c) => `    <${c} />`).join("\n");
