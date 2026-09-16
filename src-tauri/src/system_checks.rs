@@ -379,8 +379,15 @@ pub fn check_dotnet_hosting_bundle() -> CheckResult {
         // real machine that a stale x86 copy with no matching runtimes can
         // sit earlier on PATH than the real one, making a bare `dotnet`
         // invocation report the wrong (or no) runtimes entirely.
+        // Single-quoted, not double-quoted: Rust's Windows argv escaping
+        // (backslash-escaping quotes when building the command line for
+        // `powershell.exe -Command <script>`) can mangle embedded double
+        // quotes when combined with PowerShell's own parsing of that
+        // string - every other script in this file avoids this by using
+        // single quotes for literal paths, confirmed working elsewhere
+        // (e.g. check_vc_redist's registry key strings).
         let dotnet_cmd = if std::path::Path::new(r"C:\Program Files\dotnet\dotnet.exe").is_file() {
-            r#""C:\Program Files\dotnet\dotnet.exe" --list-runtimes"#.to_string()
+            "& 'C:\\Program Files\\dotnet\\dotnet.exe' --list-runtimes".to_string()
         } else {
             "dotnet --list-runtimes".to_string()
         };
