@@ -128,8 +128,21 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
   const dbConnectionString = connectionString(sqlConfig);
   const dbName = sqlConfig.databaseName || "K2";
   const sqlServerInstance = sqlConfig.instance || ".\\SQLEXPRESS";
-  const siteUrl = `https://${networkConfig.hostname || "localhost"}`;
-  const siteHost = networkConfig.hostname || "localhost";
+  // Real trace log evidence: a hostname entered with a trailing slash (e.g.
+  // "nintex.k2test.net/") propagates into every URL token derived from it
+  // here (LBHOSTSERVERFQDN, LBSITENAME, K2SITEURL(_SSL), PRIMARY_WORKSPACE),
+  // then into K2's own claims config script, which builds a lookup URL by
+  // concatenating another path onto [K2SITEURL_SSL] - producing a double
+  // slash ("nintex.k2test.net//Identity/...") that no longer matches the
+  // single-slash URL the ClaimIssuer row was actually inserted under. The
+  // resulting 0-row lookup defaults IssuerID to '0', which then fails
+  // FK_Identity_ClaimRealmIssuer_Identity_ClaimIssuer - a single stray
+  // trailing slash cascading into a deep, unrelated-looking SQL error.
+  // Strip any trailing slashes (and an accidentally pasted scheme) here so
+  // every derived token stays consistent regardless of what was typed.
+  const cleanHostname = (networkConfig.hostname || "localhost").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  const siteUrl = `https://${cleanHostname}`;
+  const siteHost = cleanHostname;
   const httpPortValue = iisConfig.httpPort || "80";
   const httpsPortValue = iisConfig.httpsPort || "443";
   const httpSiteUrl = `http://${siteHost}${httpPortValue === "80" ? "" : `:${httpPortValue}`}`;
@@ -242,7 +255,7 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["WORKFLOWSERVERPORT", "5252"],
     ["LBDISCOVERYPORT", "49600"],
     ["LBHOSTSERVERNAME", shortHostname],
-    ["LBHOSTSERVERFQDN", networkConfig.hostname || "LOCALHOST"],
+    ["LBHOSTSERVERFQDN", cleanHostname || "LOCALHOST"],
     ["LBSITENAME", siteUrl],
     ["HOSTSERVERDBSQLSERVER", sqlServerInstance],
     ["HOSTSERVERDBNAME", dbName],
