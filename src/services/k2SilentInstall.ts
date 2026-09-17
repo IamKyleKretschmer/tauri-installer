@@ -283,6 +283,18 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["USRMGRTYPE", "UMTYPE_ADUM"],
     ["WORKSPACEDISTRIBUTED", "true"],
     ["SITENAME", iisConfig.siteName || "K2"],
+    // Real trace log evidence: "K2 Workspace - Create K2 Workspace Site" and
+    // its follow-on "K2 Workspace - Ensure Certificate for SSL Binding"
+    // target reference Name="[K2SITENAME]"/CertificateName="[K2SITENAME]".
+    // Left undefined, SmartVariables echoes the raw "[K2SITENAME]" text back
+    // as the "resolved" value, so the Workspace site actually gets created
+    // under that literal bracketed name rather than the real site - then
+    // EnsureCertificate's GetCertificateHash call against that broken site
+    // throws ArgumentNullException (BitConverter.ToString on a null hash),
+    // leaving the Workspace site's SSL binding/cert half-configured. Set to
+    // the same value as SITENAME so Workspace lands on the one real site
+    // this box's Designer/Runtime/Management already deploy to.
+    ["K2SITENAME", iisConfig.siteName || "K2"],
     ["HTTPPORT", iisConfig.httpPort || "80"],
     ["HTTPSPORT", iisConfig.httpsPort || "443"],
     // Same class of bug as WORKSUSER/K2HOSTCONNECTIONSTRING above: the
