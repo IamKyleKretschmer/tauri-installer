@@ -1260,23 +1260,30 @@ fn is_stale_deployment_state(detail: &str) -> bool {
     detail.contains("DeploySessionResultsRecievedState") && detail.contains("NullReferenceException")
 }
 
-/// Real evidence: a package deployment ("App Wizard.kspx", confirmed by a
-/// real trace log) can also fail inside that same
-/// DeploySessionResultsRecievedState.Execute with a plain socket drop -
-/// "APICommunicationException: Error Sending Buffer... An existing
-/// connection was forcibly closed by the remote host" - after successfully
-/// deploying most of the package's items (256 of 387 in the confirmed
-/// case), right as it sends the final result ack. Unlike
+/// Real evidence, confirmed on two separate packages via two different
+/// internal call paths: "App Wizard.kspx" failed inside
+/// DeploySessionResultsRecievedState.Execute ("Error Sending Buffer... An
+/// existing connection was forcibly closed by the remote host") after
+/// deploying 256 of 387 items; "Management_update4.kspx" failed inside a
+/// completely different path (SendInstructionRequest.OnExecute ->
+/// SyncRequest.Complete -> Session.EndInstruction, "Error Receiving
+/// Buffer... An existing connection was forcibly closed by the remote
+/// host") after uploading 100% of its model and stalling ~2m20s before the
+/// drop. Different vendor call stacks, same underlying symptom - a plain
+/// socket disconnect mid-deployment - so this matches on the symptom
+/// itself (APICommunicationException + forcibly-closed/SocketException)
+/// rather than one specific internal state class name, which is real but
+/// too narrow (missed the second case entirely). Unlike
 /// is_stale_deployment_state's NullReferenceException variant (genuinely
 /// corrupted state needing a fresh database), this is a plain transient
 /// network hiccup on an otherwise-healthy deployment session - a simple
 /// retry against the same database is the correct recovery, the same as
 /// is_transient_service_race, not a destructive database reset. Without
-/// this, the whole install terminates fatally on this one dropped
-/// connection instead of the auto-retry catching it.
+/// this, the whole install terminates fatally on one dropped connection
+/// instead of the auto-retry catching it.
 #[cfg(target_os = "windows")]
 fn is_transient_deployment_socket_error(detail: &str) -> bool {
-    detail.contains("DeploySessionResultsRecievedState")
+    detail.contains("APICommunicationException")
         && (detail.contains("SocketException") || detail.contains("forcibly closed"))
         && !detail.contains("NullReferenceException")
 }
