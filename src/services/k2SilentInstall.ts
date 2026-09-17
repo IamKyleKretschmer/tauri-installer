@@ -381,6 +381,24 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // already selected on the IIS & .NET step rather than asking for a
     // second one - it's the same real cert being bound to this site.
     ["SP_CERT_THUMBPRINT_WS", iisConfig.sslCertificate || ""],
+    // Real vendor source (DoClaimsConfig.DoAllClaimsConfig, ClaimsType.General
+    // branch): "if (!preserveClaims) { ...load and run the base ClaimIssuer/
+    // ClaimRealm/ClaimType/... seeding XML... } else { Log.Write("General
+    // Claims configurations are preserved."); }" where preserveClaims comes
+    // from [PRESERVE_CLAIMS_WS]. K2's own engine defaults this to "true" via
+    // Config.EnsurePreserveVar before the answer file's VARIABLES are even
+    // read (confirmed in a real trace log: "Creating new variable:
+    // [PRESERVE_CLAIMS_WS] = true" at startup) - presumably so a genuine
+    // update/repair doesn't clobber an already-configured environment's
+    // claims. Left unset here, every one of this app's installs has silently
+    // hit that "preserved" branch and skipped seeding the base ClaimIssuer
+    // rows entirely (zero ClaimIssuer INSERTs anywhere in the whole trace),
+    // which is what a later step's ClaimRealmIssuer insert then has nothing
+    // to link to - the actual root cause of
+    // FK_Identity_ClaimRealmIssuer_Identity_ClaimIssuer, not a database or
+    // hostname issue. A genuinely fresh install needs this seeding to run,
+    // so override the default to "false" here.
+    ["PRESERVE_CLAIMS_WS", "false"],
     ...(executionType ? ([["EXECUTION_TYPE", executionType]] as [string, string][]) : []),
   ];
 
