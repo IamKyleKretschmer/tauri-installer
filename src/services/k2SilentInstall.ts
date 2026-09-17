@@ -248,8 +248,23 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // unrelated to the System/K2SQL account or its password, which were
     // always correct. Values mirror UserPanel's own non-SQLUM (AD-joined)
     // branch, matching INST_Label=K2 above.
-    ["K2HOSTCONNECTIONSTRING", "Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=[LBHOSTSERVERNAME];Port=[HOSTSERVERPORT]"],
-    ["K2WFCONNECTIONSTRING", "Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=[LBHOSTSERVERNAME];Port=[WORKFLOWSERVERPORT]"],
+    // Real trace log evidence: these two are set verbatim with the
+    // [LBHOSTSERVERNAME]/[HOSTSERVERPORT] placeholders still embedded
+    // (matching a real captured answer file), on the assumption the
+    // runtime engine expands nested tokens wherever this string is read.
+    // It only sometimes does: SmartVariables.GetSmartVariable (e.g. the
+    // [CanConnectToHostServer([K2HOSTCONNECTIONSTRING])] condition check)
+    // recursively resolves the nested brackets fine, but
+    // AuthorizationBase.AddServerUser (behind "ServerUser - Add AppPool
+    // User") reads this value via a plain, non-recursive Store.GetVariable
+    // and passes the still-templated string straight to
+    // SCConnectionStringBuilder, whose get_Port() then tries to
+    // int.Parse the literal text "[HOSTSERVERPORT]" and throws
+    // FormatException - since we already know the real host/port values
+    // at answer-file-authoring time, inline them directly instead of
+    // relying on a runtime expansion step that not every consumer does.
+    ["K2HOSTCONNECTIONSTRING", `Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=${shortHostname};Port=5555`],
+    ["K2WFCONNECTIONSTRING", `Integrated=True;IsPrimaryLogin=True;Authenticate=True;EncryptedPassword=False;Host=${shortHostname};Port=5252`],
     ["HOSTSERVERNAME", shortHostname],
     ["HOSTSERVERPORT", "5555"],
     ["WORKFLOWSERVERPORT", "5252"],

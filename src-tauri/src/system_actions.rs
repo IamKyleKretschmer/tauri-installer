@@ -1260,6 +1260,27 @@ fn is_stale_deployment_state(detail: &str) -> bool {
     detail.contains("DeploySessionResultsRecievedState") && detail.contains("NullReferenceException")
 }
 
+/// Real evidence: a package deployment ("App Wizard.kspx", confirmed by a
+/// real trace log) can also fail inside that same
+/// DeploySessionResultsRecievedState.Execute with a plain socket drop -
+/// "APICommunicationException: Error Sending Buffer... An existing
+/// connection was forcibly closed by the remote host" - after successfully
+/// deploying most of the package's items (256 of 387 in the confirmed
+/// case), right as it sends the final result ack. Unlike
+/// is_stale_deployment_state's NullReferenceException variant (genuinely
+/// corrupted state needing a fresh database), this is a plain transient
+/// network hiccup on an otherwise-healthy deployment session - a simple
+/// retry against the same database is the correct recovery, the same as
+/// is_transient_service_race, not a destructive database reset. Without
+/// this, the whole install terminates fatally on this one dropped
+/// connection instead of the auto-retry catching it.
+#[cfg(target_os = "windows")]
+fn is_transient_deployment_socket_error(detail: &str) -> bool {
+    detail.contains("DeploySessionResultsRecievedState")
+        && (detail.contains("SocketException") || detail.contains("forcibly closed"))
+        && !detail.contains("NullReferenceException")
+}
+
 /// Drops and recreates the K2 database via the same DotNetRunner path
 /// test_sql_connection/drop_k2_database use, so the retry after this gets
 /// a genuinely clean database instead of resuming onto whatever
@@ -1307,6 +1328,7 @@ pub async fn run_real_installer(
                     wait_for_k2_server_port();
                     run_real_installer_once(&folder, &xml_path)
                 }
+                Err(err) if is_transient_deployment_socket_error(&err) => run_real_installer_once(&folder, &xml_path),
                 Err(err) if is_stale_security_context(&err) => {
                     restart_k2_server_engine();
                     run_real_installer_once(&folder, &xml_path)
