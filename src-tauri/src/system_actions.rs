@@ -948,6 +948,34 @@ fn clear_install_history_journal() {
     let _ = std::fs::remove_dir_all(setup_dir.join("State"));
 }
 
+/// Real root cause, confirmed via trace log: before the answer file set a
+/// real K2SITENAME token, K2's own "K2 Workspace - Create K2 Workspace
+/// Site" target used the literal unresolved "[K2SITENAME]" text (brackets
+/// included) as the site name it passed to IIS, leaving a genuine, broken
+/// IIS site by that literal name on disk from any run made before that fix
+/// shipped. Confirmed via a real IIS Manager screenshot: it's still there
+/// (alongside a working "K2" site) on a machine that had run this
+/// installer before. A leftover site can hold a binding on the same
+/// IP/port the real "K2" site needs, which is consistent with K2 site
+/// failing to start in IIS afterward ("another site may be using the same
+/// port"). Since every run now always sets a real K2SITENAME value, any
+/// site actually named "[K2SITENAME]" can only be this stale leftover -
+/// safe to remove unconditionally before each run rather than requiring
+/// every affected operator to notice and delete it by hand in IIS Manager.
+#[cfg(target_os = "windows")]
+fn remove_stale_bracketed_workspace_site() {
+    let script = r#"
+Import-Module WebAdministration -ErrorAction SilentlyContinue
+if (Get-Website -Name '[K2SITENAME]' -ErrorAction SilentlyContinue) {
+    Remove-Website -Name '[K2SITENAME]'
+}
+if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
+    Remove-WebAppPool -Name '[K2SITENAME]'
+}
+"#;
+    let _ = run_powershell(script);
+}
+
 /// Real root cause, confirmed on a real machine: K2's own SetupManager
 /// resolves the bare command name `dotnet` via ordinary PATH search when it
 /// checks the ".NET Core Hosting and Runtime Bundle" component dependency
@@ -1271,6 +1299,7 @@ pub async fn run_real_installer(
             clear_install_history_journal();
             exclude_k2_from_defender(&folder);
             clear_k2_generated_certificates();
+            remove_stale_bracketed_workspace_site();
 
             match run_real_installer_once(&folder, &xml_path) {
                 Ok(message) => Ok(message),
