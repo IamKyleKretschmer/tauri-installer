@@ -36,6 +36,17 @@ export interface SilentInstallConfig {
    * Falls back to "LOCALHOST" only if the real name couldn't be read.
    */
   computerName: string;
+  /**
+   * Real answer-file/runtime token, confirmed from trace-log conditions
+   * like "!Exists:[...] | [EXECUTION_TYPE]=Repair" gating whether targets
+   * re-copy files or re-run config that a prior run already did. Left
+   * undefined (the default), it's absent from VARIABLES entirely, which is
+   * what every fresh-install run so far has done. Set to "Update" for a
+   * maintenance run against an already-installed K2, so the vendor
+   * package's own targets skip work they detect is already done instead of
+   * replaying the full first-install sequence.
+   */
+  executionType?: "Update";
 }
 
 function escapeXml(value: string): string {
@@ -94,7 +105,8 @@ function deriveBytesFromString(source: string, length: number): Uint8Array {
 }
 
 export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
-  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey, computerName } = config;
+  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey, computerName, executionType } =
+    config;
 
   // A blank/missing encryption key set is what SetupManager's
   // "EncryptionValidation: Unable to validate encryption" actually turns
@@ -356,6 +368,7 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // already selected on the IIS & .NET step rather than asking for a
     // second one - it's the same real cert being bound to this site.
     ["SP_CERT_THUMBPRINT_WS", iisConfig.sslCertificate || ""],
+    ...(executionType ? ([["EXECUTION_TYPE", executionType]] as [string, string][]) : []),
   ];
 
   const componentsXml = COMPONENTS.map((c) => `    <${c} />`).join("\n");

@@ -25,6 +25,7 @@ import { RemoveStep } from "./steps/RemoveStep";
 import type { RemoveConfig } from "./steps/RemoveStep";
 import { RemovalStep } from "./steps/RemovalStep";
 import type { RemovalSummary } from "./steps/RemovalStep";
+import { UpdateStep } from "./steps/UpdateStep";
 import type {
   ActionResult,
   CertificateInfo,
@@ -591,6 +592,14 @@ function App() {
             onCancel={() => setMaintenanceChosen(null)}
           />
         )}
+      </div>
+    );
+  }
+
+  if (maintenanceChosen === "update") {
+    return (
+      <div className="app-shell">
+        <UpdateStep onDone={() => void closeAppWindow()} onCancel={() => setMaintenanceChosen(null)} />
       </div>
     );
   }
