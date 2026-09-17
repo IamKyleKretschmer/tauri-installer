@@ -976,24 +976,135 @@ if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
     let _ = run_powershell(script);
 }
 
-/// Real root cause, confirmed via trace log: K2's own "program files\K2
-/// BlackPearl\WebServices\K2Services\web.config" target is gated by
-/// Condition="!Exists:[INSTALLDIR]\WebServices\K2Services\web.config |
-/// [EXECUTION_TYPE]=Repair" - i.e. it only (re)copies a fresh web.config
-/// there if one doesn't already exist. A web.config left over from an
-/// earlier, pre-fix run (with a genuine XML defect - a duplicate
-/// "system.web.extensions/scripting/scriptResourceHandler" section)
-/// therefore never gets replaced on later runs; every retry just patches
-/// that same already-broken file via XmlUpdate, so the defect - and every
-/// AppCmd command that later tries to edit that file - fails forever
-/// ("K2 Workspace - Set K2Services Win Auth"/NTLM/Negotiate/anonymous
-/// auth, all downstream of the same broken file). Since a real fresh
-/// install always writes a valid file here, deleting any pre-existing one
-/// before a run is safe and forces a genuinely fresh copy.
+/// Real root cause, confirmed against K2Services' own real web.config
+/// (user-supplied) plus a real IIS "Add Roles and Features" screenshot
+/// showing ".NET Framework 3.5 Features (Installed)": that Windows
+/// feature registers a machine-wide web.config <sectionGroup
+/// name="system.web.extensions"> (System.Web.Extensions ships its own
+/// AJAX config registration at the machine level). K2Services' own
+/// shipped web.config re-declares that exact same sectionGroup/section
+/// for itself - harmless on a machine without .NET 3.5 installed, a hard
+/// "duplicate section defined" conflict on one where it is, which is why
+/// AppCmd fails every "K2 Workspace - Set K2Services ..." auth target
+/// (Win Auth, useKernelMode, useAppPoolCredentials, anonymous auth, NTLM/
+/// Negotiate providers) against this one file. SetupManager treats these
+/// as non-fatal (still exits 0), so this app's own Err()-based retry
+/// logic never sees them; the fix has to run as a real post-install
+/// remediation instead - strip the redundant, already-machine-registered
+/// sectionGroup from the file, then reapply the exact same auth settings
+/// SetupManager tried (and failed) to set, directly via AppCmd.
 #[cfg(target_os = "windows")]
-fn remove_stale_k2services_web_config() {
+fn fix_k2services_scripting_section_and_auth(site_name: &str) {
     let path = PathBuf::from(r"C:\Program Files\K2\WebServices\K2Services\web.config");
-    let _ = std::fs::remove_file(&path);
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        if let Some(fixed) = strip_section_group(&contents, "system.web.extensions") {
+            let _ = std::fs::write(&path, fixed);
+        }
+    }
+
+    let app_path = format!("{site_name}/K2Services");
+    let app_path = app_path.as_str();
+    let commands: [&[&str]; 6] = [
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/windowsAuthentication",
+            "/enabled:true",
+        ],
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/windowsAuthentication",
+            "/useKernelMode:true",
+        ],
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/windowsAuthentication",
+            "/useAppPoolCredentials:true",
+        ],
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/anonymousAuthentication",
+            "/enabled:true",
+        ],
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/windowsAuthentication",
+            "/+providers.[value='NTLM']",
+        ],
+        &[
+            "set",
+            "config",
+            app_path,
+            "/section:system.webServer/security/authentication/windowsAuthentication",
+            "/+providers.[value='Negotiate']",
+        ],
+    ];
+
+    let appcmd = r"C:\Windows\System32\inetsrv\appcmd.exe";
+    for args in commands {
+        let _ = Command::new(appcmd).args(args).output();
+    }
+}
+
+/// Pulls a VARIABLES value back out of the answer file XML this app itself
+/// generated (format: `<add key="[TOKEN]">value</add>`, see
+/// k2SilentInstall.ts), so post-install steps like the K2Services fix
+/// above can reuse the real site name without needing a matching new
+/// parameter threaded through the Tauri command boundary.
+#[cfg(target_os = "windows")]
+fn extract_answer_file_value(xml: &str, token: &str) -> Option<String> {
+    let needle = format!("<add key=\"[{token}]\">");
+    let start = xml.find(&needle)? + needle.len();
+    let end = xml[start..].find("</add>")? + start;
+    Some(xml[start..end].to_string())
+}
+
+/// Removes a top-level `<sectionGroup name="{name}" ...>...</sectionGroup>`
+/// element from a web.config's `<configSections>`, matched by name
+/// attribute and balanced against nested `<sectionGroup`/`</sectionGroup>`
+/// tags (this element type genuinely nests, e.g. "scripting" inside
+/// "system.web.extensions"). Returns None if no such element is found, so
+/// callers can skip writing the file back when there's nothing to fix.
+#[cfg(target_os = "windows")]
+fn strip_section_group(xml: &str, name: &str) -> Option<String> {
+    let needle = format!("<sectionGroup name=\"{name}\"");
+    let start = xml.find(&needle)?;
+
+    let mut depth = 0i32;
+    let mut cursor = start;
+    let end = loop {
+        let next_open = xml[cursor..].find("<sectionGroup").map(|i| cursor + i);
+        let next_close = xml[cursor..].find("</sectionGroup>").map(|i| cursor + i);
+        match (next_open, next_close) {
+            (Some(open), Some(close)) if open < close => {
+                depth += 1;
+                cursor = open + "<sectionGroup".len();
+            }
+            (_, Some(close)) => {
+                depth -= 1;
+                let close_end = close + "</sectionGroup>".len();
+                if depth == 0 {
+                    break close_end;
+                }
+                cursor = close_end;
+            }
+            _ => return None,
+        }
+    };
+
+    let mut result = String::with_capacity(xml.len());
+    result.push_str(&xml[..start]);
+    result.push_str(&xml[end..]);
+    Some(result)
 }
 
 /// Real root cause, confirmed on a real machine: K2's own SetupManager
@@ -1348,9 +1459,9 @@ pub async fn run_real_installer(
             exclude_k2_from_defender(&folder);
             clear_k2_generated_certificates();
             remove_stale_bracketed_workspace_site();
-            remove_stale_k2services_web_config();
+            let site_name = extract_answer_file_value(&silent_xml_contents, "SITENAME").unwrap_or_else(|| "K2".to_string());
 
-            match run_real_installer_once(&folder, &xml_path) {
+            let result = match run_real_installer_once(&folder, &xml_path) {
                 Ok(message) => Ok(message),
                 Err(err) if is_transient_service_race(&err) => {
                     wait_for_k2_server_port();
@@ -1371,7 +1482,13 @@ pub async fn run_real_installer(
                     run_real_installer_once(&folder, &xml_path)
                 }
                 Err(err) => Err(err),
+            };
+
+            if result.is_ok() {
+                fix_k2services_scripting_section_and_auth(&site_name);
             }
+
+            result
         }
         #[cfg(not(target_os = "windows"))]
         {
