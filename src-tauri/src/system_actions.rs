@@ -976,6 +976,26 @@ if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
     let _ = run_powershell(script);
 }
 
+/// Real root cause, confirmed via trace log: K2's own "program files\K2
+/// BlackPearl\WebServices\K2Services\web.config" target is gated by
+/// Condition="!Exists:[INSTALLDIR]\WebServices\K2Services\web.config |
+/// [EXECUTION_TYPE]=Repair" - i.e. it only (re)copies a fresh web.config
+/// there if one doesn't already exist. A web.config left over from an
+/// earlier, pre-fix run (with a genuine XML defect - a duplicate
+/// "system.web.extensions/scripting/scriptResourceHandler" section)
+/// therefore never gets replaced on later runs; every retry just patches
+/// that same already-broken file via XmlUpdate, so the defect - and every
+/// AppCmd command that later tries to edit that file - fails forever
+/// ("K2 Workspace - Set K2Services Win Auth"/NTLM/Negotiate/anonymous
+/// auth, all downstream of the same broken file). Since a real fresh
+/// install always writes a valid file here, deleting any pre-existing one
+/// before a run is safe and forces a genuinely fresh copy.
+#[cfg(target_os = "windows")]
+fn remove_stale_k2services_web_config() {
+    let path = PathBuf::from(r"C:\Program Files\K2\WebServices\K2Services\web.config");
+    let _ = std::fs::remove_file(&path);
+}
+
 /// Real root cause, confirmed on a real machine: K2's own SetupManager
 /// resolves the bare command name `dotnet` via ordinary PATH search when it
 /// checks the ".NET Core Hosting and Runtime Bundle" component dependency
@@ -1328,6 +1348,7 @@ pub async fn run_real_installer(
             exclude_k2_from_defender(&folder);
             clear_k2_generated_certificates();
             remove_stale_bracketed_workspace_site();
+            remove_stale_k2services_web_config();
 
             match run_real_installer_once(&folder, &xml_path) {
                 Ok(message) => Ok(message),
