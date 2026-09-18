@@ -1521,7 +1521,27 @@ pub async fn run_real_installer(
                     wait_for_k2_server_port();
                     run_real_installer_once(&folder, &xml_path)
                 }
-                Err(err) if is_transient_deployment_socket_error(&err) => run_real_installer_once(&folder, &xml_path),
+                Err(err) if is_transient_deployment_socket_error(&err) => {
+                    // Real evidence: this flaky socket drop can recur on a
+                    // second attempt in a row (confirmed - a retry hit the
+                    // exact same "forcibly closed by the remote host" error
+                    // again before finally succeeding on a third, manual
+                    // re-run), so one retry alone isn't always enough. Keep
+                    // retrying while this exact error class keeps recurring,
+                    // up to a small bounded number of extra attempts, rather
+                    // than giving up and terminating the whole install on
+                    // what's ultimately just network flakiness.
+                    let mut attempt_result = run_real_installer_once(&folder, &xml_path);
+                    for _ in 0..2 {
+                        match &attempt_result {
+                            Err(retry_err) if is_transient_deployment_socket_error(retry_err) => {
+                                attempt_result = run_real_installer_once(&folder, &xml_path);
+                            }
+                            _ => break,
+                        }
+                    }
+                    attempt_result
+                }
                 Err(err) if is_stale_security_context(&err) => {
                     restart_k2_server_engine();
                     run_real_installer_once(&folder, &xml_path)
