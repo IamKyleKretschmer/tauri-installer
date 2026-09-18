@@ -994,12 +994,22 @@ if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
 /// sectionGroup from the file, then reapply the exact same auth settings
 /// SetupManager tried (and failed) to set, directly via AppCmd.
 #[cfg(target_os = "windows")]
-fn fix_k2services_scripting_section_and_auth(site_name: &str) {
+fn fix_k2services_scripting_section_and_auth(site_name: &str) -> String {
+    let mut notes: Vec<String> = Vec::new();
     let path = PathBuf::from(r"C:\Program Files\K2\WebServices\K2Services\web.config");
-    if let Some(contents) = read_utf16le_file(&path) {
-        if let Some(fixed) = strip_section_group(&contents, "system.web.extensions") {
-            let _ = write_utf16le_file(&path, &fixed);
-        }
+
+    match read_utf16le_file(&path) {
+        Some(contents) => match strip_section_group(&contents, "system.web.extensions") {
+            Some(fixed) => match write_utf16le_file(&path, &fixed) {
+                Ok(()) => notes.push("K2Services fix: stripped duplicate system.web.extensions section.".to_string()),
+                Err(e) => notes.push(format!("K2Services fix: found the duplicate section but failed to write it back: {e}")),
+            },
+            None => notes.push("K2Services fix: no system.web.extensions sectionGroup found in the file (nothing to strip).".to_string()),
+        },
+        None => notes.push(format!(
+            "K2Services fix: could not read {} as UTF-16 (missing, or not the expected format).",
+            path.display()
+        )),
     }
 
     let app_path = format!("{site_name}/K2Services");
@@ -1051,8 +1061,20 @@ fn fix_k2services_scripting_section_and_auth(site_name: &str) {
 
     let appcmd = r"C:\Windows\System32\inetsrv\appcmd.exe";
     for args in commands {
-        let _ = Command::new(appcmd).args(args).output();
+        match Command::new(appcmd).args(args).output() {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => notes.push(format!(
+                "appcmd {} exited {}: {}{}",
+                args.join(" "),
+                out.status,
+                String::from_utf8_lossy(&out.stdout).trim(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            )),
+            Err(e) => notes.push(format!("Failed to launch appcmd for '{}': {e}", args.join(" "))),
+        }
     }
+
+    notes.join(" | ")
 }
 
 /// K2's own web.config files are written as UTF-16LE with a BOM (confirmed
@@ -1493,7 +1515,7 @@ pub async fn run_real_installer(
             remove_stale_bracketed_workspace_site();
             let site_name = extract_answer_file_value(&silent_xml_contents, "SITENAME").unwrap_or_else(|| "K2".to_string());
 
-            let result = match run_real_installer_once(&folder, &xml_path) {
+            let mut result = match run_real_installer_once(&folder, &xml_path) {
                 Ok(message) => Ok(message),
                 Err(err) if is_transient_service_race(&err) => {
                     wait_for_k2_server_port();
@@ -1516,8 +1538,9 @@ pub async fn run_real_installer(
                 Err(err) => Err(err),
             };
 
-            if result.is_ok() {
-                fix_k2services_scripting_section_and_auth(&site_name);
+            if let Ok(message) = &mut result {
+                let notes = fix_k2services_scripting_section_and_auth(&site_name);
+                message.push_str(&format!("\n{notes}"));
             }
 
             result
