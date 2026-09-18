@@ -1445,6 +1445,24 @@ fn is_stale_deployment_state(detail: &str) -> bool {
     detail.contains("DeploySessionResultsRecievedState") && detail.contains("NullReferenceException")
 }
 
+/// Real evidence from a full customer install log: contrary to this file's
+/// own earlier assumption (see fix_k2services_scripting_section_and_auth),
+/// SetupManager does NOT always treat the six "K2 Workspace - Set
+/// K2Services ..." auth targets as non-fatal - on this run it exited 1 and
+/// showed its own "Installation stopped. Click Back to fix the issue above
+/// and try again." screen, driven entirely by the same duplicate
+/// 'system.web.extensions/scripting/scriptResourceHandler' AppCmd error
+/// fix_k2services_scripting_section_and_auth already knows how to repair.
+/// Previously this meant run_real_installer's `if let Ok(message)` guard
+/// never applied that fix, because the whole call came back Err instead -
+/// the same known problem now just needs to be detected as a distinct
+/// error class so it can be repaired mid-retry instead of only after a
+/// successful run.
+#[cfg(target_os = "windows")]
+fn is_k2services_scripting_section_conflict(detail: &str) -> bool {
+    detail.contains("duplicate 'system.web.extensions/scripting/scriptResourceHandler' section")
+}
+
 /// Real evidence, confirmed on two separate packages via two different
 /// internal call paths: "App Wizard.kspx" failed inside
 /// DeploySessionResultsRecievedState.Execute ("Error Sending Buffer... An
@@ -1553,6 +1571,17 @@ pub async fn run_real_installer(
                     // replay from scratch rather than resuming a journal
                     // that thinks most of the install already happened.
                     clear_install_history_journal();
+                    run_real_installer_once(&folder, &xml_path)
+                }
+                Err(err) if is_k2services_scripting_section_conflict(&err) => {
+                    // These six targets never got marked complete in the
+                    // journal, so the retry will re-attempt them (unlike
+                    // the earlier, already-succeeded targets it skips).
+                    // Strip the duplicate sectionGroup ourselves first so
+                    // this time the retry's own AppCmd calls against
+                    // K2Services\web.config succeed instead of hitting the
+                    // exact same "duplicate section defined" error again.
+                    let _ = fix_k2services_scripting_section_and_auth(&site_name);
                     run_real_installer_once(&folder, &xml_path)
                 }
                 Err(err) => Err(err),
