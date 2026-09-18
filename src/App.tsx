@@ -262,20 +262,25 @@ function App() {
     }
 
     if (step === "active-directory") {
-      // Informational only, doesn't block Next: PrincipalContext needs a
-      // classic AD domain context, which an Entra/Azure AD-joined-only
-      // machine (no on-prem AD) won't have even though it's a perfectly
-      // valid K2 environment, so a lookup failure here isn't necessarily
-      // a real problem with the entered values.
+      // Object-lookup failures here are informational only, not blocking:
+      // PrincipalContext needs a classic AD domain context, which an
+      // Entra/Azure AD-joined-only machine (no on-prem AD) won't have even
+      // though it's a perfectly valid K2 environment. A confirmed-wrong
+      // password is different - unambiguous, and would otherwise only
+      // surface much later, deep in a real install's trace log
+      // ("PasswordValidation: The correct service account password is
+      // required..."), so that specific case does block Next.
       setAdTesting(true);
       setAdValidationResult(null);
       const result = await validateActiveDirectory({
         serviceAccount: adConfig.serviceAccount,
         adminsGroup: adConfig.adminsGroup,
         createGroupIfMissing: adConfig.createGroupIfMissing,
+        servicePassword: adConfig.servicePassword,
       });
       setAdTesting(false);
       setAdValidationResult(result);
+      if (result.passwordInvalid) return;
     }
 
     goTo(ORDER[index + 1]);

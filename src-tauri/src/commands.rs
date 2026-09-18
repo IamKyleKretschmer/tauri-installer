@@ -296,6 +296,7 @@ pub async fn check_ad_objects(
     service_account: String,
     admins_group: String,
     create_group_if_missing: bool,
+    service_password: String,
 ) -> Result<String, String> {
     if service_account.trim().is_empty() {
         return Err("K2 service account cannot be empty.".to_string());
@@ -308,7 +309,7 @@ pub async fn check_ad_objects(
         let runner = dotnet_runner_path();
         let create_flag = if create_group_if_missing { "true" } else { "false" };
         let output = Command::new(runner)
-            .args(["ad-check", &service_account, &admins_group, create_flag])
+            .args(["ad-check", &service_account, &admins_group, create_flag, &service_password])
             .output()
             .map_err(|e| format!("Failed to launch DotNetRunner: {e}"))?;
 

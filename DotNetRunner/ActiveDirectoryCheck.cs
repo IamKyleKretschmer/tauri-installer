@@ -15,19 +15,25 @@ namespace DotNetRunner
     {
         /// <summary>
         /// args: [0]=ad-check, [1]=service account (DOMAIN\user or user@domain),
-        /// [2]=administrators group name, [3]=create group if missing (true|false).
+        /// [2]=administrators group name, [3]=create group if missing (true|false),
+        /// [4]=service account password (optional - when supplied, credentials are
+        /// verified via PrincipalContext.ValidateCredentials so a wrong password is
+        /// caught here instead of surfacing only much later, deep in a real
+        /// install's trace log, as "PasswordValidation: The correct service
+        /// account password is required to register a new Server service.").
         /// </summary>
         public static int CheckObjects(string[] args)
         {
             if (args.Length < 4)
             {
-                Console.Error.WriteLine("Usage: DotNetRunner.exe ad-check <service-account> <admins-group> <create-if-missing>");
+                Console.Error.WriteLine("Usage: DotNetRunner.exe ad-check <service-account> <admins-group> <create-if-missing> [password]");
                 return 1;
             }
 
             string serviceAccountArg = args[1];
             string adminsGroupArg = args[2];
             bool createIfMissing = string.Equals(args[3], "true", StringComparison.OrdinalIgnoreCase);
+            string password = args.Length > 4 ? args[4] : null;
 
             string serviceAccountIdentity = StripDomainPrefix(serviceAccountArg);
             string adminsGroupIdentity = StripDomainPrefix(adminsGroupArg);
@@ -47,6 +53,24 @@ namespace DotNetRunner
                     {
                         Console.Error.WriteLine($"Service account '{serviceAccountArg}' was not found in Active Directory.");
                         return 1;
+                    }
+
+                    if (!string.IsNullOrEmpty(password))
+                    {
+                        if (context.ValidateCredentials(serviceAccountIdentity, password))
+                        {
+                            Console.WriteLine("Service account password verified successfully.");
+                        }
+                        else
+                        {
+                            // Prefixed marker so callers can distinguish a
+                            // confirmed-wrong password (safe to hard-block Next
+                            // on) from every other AD lookup failure here, some
+                            // of which are legitimately ambiguous (e.g. an
+                            // Entra-only machine with no reachable on-prem AD).
+                            Console.Error.WriteLine($"PASSWORD_INVALID: The password entered for service account '{serviceAccountArg}' is incorrect.");
+                            return 2;
+                        }
                     }
 
                     if (group != null)

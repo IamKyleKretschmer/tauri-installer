@@ -79,11 +79,17 @@ export const tauriBridge = {
   getMachineFqdn: () => invoke<string | null>("get_machine_fqdn"),
   getComputerName: () => invoke<string | null>("get_computer_name"),
   findK2ServiceAccount: () => invoke<string | null>("find_k2_service_account"),
-  checkAdObjects: (params: { serviceAccount: string; adminsGroup: string; createGroupIfMissing: boolean }) =>
+  checkAdObjects: (params: {
+    serviceAccount: string;
+    adminsGroup: string;
+    createGroupIfMissing: boolean;
+    servicePassword: string;
+  }) =>
     invoke<string>("check_ad_objects", {
       serviceAccount: params.serviceAccount,
       adminsGroup: params.adminsGroup,
       createGroupIfMissing: params.createGroupIfMissing,
+      servicePassword: params.servicePassword,
     }),
   configureIisSite: (params: {
     siteName: string;

@@ -271,20 +271,42 @@ export interface AdValidationParams {
   serviceAccount: string;
   adminsGroup: string;
   createGroupIfMissing: boolean;
+  servicePassword: string;
 }
 
-export type AdValidationResult = ActionResult;
+export interface AdValidationResult extends ActionResult {
+  /**
+   * True only when DotNetRunner's ad-check confirmed the password is wrong
+   * (PrincipalContext.ValidateCredentials returned false) - distinct from
+   * every other AD lookup failure here (e.g. domain unreachable on an
+   * Entra-only machine), which are legitimately ambiguous and shouldn't
+   * block Next the same way a definitively wrong password should.
+   */
+  passwordInvalid: boolean;
+}
 
 /**
  * Looks up the service account and admins group in Active Directory via
- * DotNetRunner (read-only, never creates AD objects).
+ * DotNetRunner (read-only, never creates AD objects), and - when a
+ * password is supplied - verifies it's actually correct for that account.
+ * Previously a wrong password was only ever discovered deep in a real
+ * install's trace log ("PasswordValidation: The correct service account
+ * password is required..."), well after everything else had already run;
+ * this catches it immediately on the wizard step instead.
  */
 export async function validateActiveDirectory(params: AdValidationParams): Promise<AdValidationResult> {
   try {
     const message = await tauriBridge.checkAdObjects(params);
-    return { success: true, message };
+    return { success: true, message, passwordInvalid: false };
   } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    const marker = "PASSWORD_INVALID:";
+    const passwordInvalid = message.includes(marker);
+    return {
+      success: false,
+      message: passwordInvalid ? message.slice(message.indexOf(marker) + marker.length).trim() : message,
+      passwordInvalid,
+    };
   }
 }
 
