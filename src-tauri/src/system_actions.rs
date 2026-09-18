@@ -996,9 +996,9 @@ if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
 #[cfg(target_os = "windows")]
 fn fix_k2services_scripting_section_and_auth(site_name: &str) {
     let path = PathBuf::from(r"C:\Program Files\K2\WebServices\K2Services\web.config");
-    if let Ok(contents) = std::fs::read_to_string(&path) {
+    if let Some(contents) = read_utf16le_file(&path) {
         if let Some(fixed) = strip_section_group(&contents, "system.web.extensions") {
-            let _ = std::fs::write(&path, fixed);
+            let _ = write_utf16le_file(&path, &fixed);
         }
     }
 
@@ -1053,6 +1053,38 @@ fn fix_k2services_scripting_section_and_auth(site_name: &str) {
     for args in commands {
         let _ = Command::new(appcmd).args(args).output();
     }
+}
+
+/// K2's own web.config files are written as UTF-16LE with a BOM (confirmed
+/// via `file` against a real K2Services\web.config: "Unicode text, UTF-16,
+/// little-endian" - matching the file's own `encoding="utf-16"` XML
+/// declaration), not UTF-8. `std::fs::read_to_string` only accepts UTF-8
+/// and silently errors on this content, which is exactly why an earlier
+/// version of this fix's `if let Ok(contents) = std::fs::read_to_string(..)`
+/// silently did nothing at all - confirmed against a real post-run copy of
+/// the file still containing the untouched sectionGroup. Read/write UTF-16LE
+/// directly instead, preserving the BOM so IIS/ASP.NET still recognizes the
+/// file's encoding correctly.
+#[cfg(target_os = "windows")]
+fn read_utf16le_file(path: &std::path::Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() < 2 || bytes[0] != 0xFF || bytes[1] != 0xFE {
+        return None;
+    }
+    let units: Vec<u16> = bytes[2..]
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16(&units).ok()
+}
+
+#[cfg(target_os = "windows")]
+fn write_utf16le_file(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    let mut bytes = vec![0xFFu8, 0xFE];
+    for unit in content.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::write(path, bytes)
 }
 
 /// Pulls a VARIABLES value back out of the answer file XML this app itself
