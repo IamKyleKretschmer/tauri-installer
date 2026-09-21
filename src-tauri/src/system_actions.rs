@@ -964,16 +964,63 @@ fn clear_install_history_journal() {
 /// every affected operator to notice and delete it by hand in IIS Manager.
 #[cfg(target_os = "windows")]
 fn remove_stale_bracketed_workspace_site() {
+    // -LiteralPath, not Test-Path's default wildcard-aware matching: the
+    // IIS: PSDrive is a wildcard-capable provider like the filesystem one,
+    // so a plain `Test-Path 'IIS:\AppPools\[K2SITENAME]'` treats the
+    // brackets as a character class (matches a single app pool literally
+    // named "K", "2", "S", ... ) instead of the literal bracketed name -
+    // meaning this check silently never found the real stale app pool.
     let script = r#"
 Import-Module WebAdministration -ErrorAction SilentlyContinue
 if (Get-Website -Name '[K2SITENAME]' -ErrorAction SilentlyContinue) {
     Remove-Website -Name '[K2SITENAME]'
 }
-if (Test-Path 'IIS:\AppPools\[K2SITENAME]') {
+if (Test-Path -LiteralPath 'IIS:\AppPools\[K2SITENAME]') {
     Remove-WebAppPool -Name '[K2SITENAME]'
 }
 "#;
     let _ = run_powershell(script);
+}
+
+/// Makes sure the real, correctly-named K2 site (and its app pools) are
+/// actually running once the install is done. Real evidence: a customer
+/// machine where the install itself reported success still had K2's site
+/// refusing to start in IIS - consistent with a phantom "[K2SITENAME]"
+/// site (see remove_stale_bracketed_workspace_site) having held the same
+/// port binding for at least part of the run, which leaves the real site
+/// in a Stopped state that a passing installer never revisits. Starting it
+/// explicitly here, after any stale bracketed leftover is cleared, is the
+/// only point in this flow that both knows the real site name and runs
+/// unconditionally after the install finishes.
+#[cfg(target_os = "windows")]
+fn start_real_k2_site(site_name: &str) -> String {
+    let script = format!(
+        r#"
+Import-Module WebAdministration -ErrorAction SilentlyContinue
+$site = '{site_name}'
+$results = @()
+try {{
+    if ((Get-Website -Name $site -ErrorAction SilentlyContinue).State -ne 'Started') {{
+        Start-Website -Name $site
+    }}
+    $results += "Site '$site' state: $((Get-Website -Name $site).State)"
+}} catch {{
+    $results += "Failed to start site '$site': $_"
+}}
+Get-ChildItem IIS:\AppPools | Where-Object {{ $_.Name -like "$site*" }} | ForEach-Object {{
+    try {{
+        if ($_.State -ne 'Started') {{
+            Start-WebAppPool -Name $_.Name
+        }}
+        $results += "App pool '$($_.Name)' state: $((Get-Item "IIS:\AppPools\$($_.Name)").State)"
+    }} catch {{
+        $results += "Failed to start app pool '$($_.Name)': $_"
+    }}
+}}
+$results -join "`n"
+"#
+    );
+    run_powershell(&script).unwrap_or_else(|e| format!("Failed to run site-start script: {e}"))
 }
 
 /// Real root cause, confirmed against K2Services' own real web.config
@@ -1590,6 +1637,16 @@ pub async fn run_real_installer(
             if let Ok(message) = &mut result {
                 let notes = fix_k2services_scripting_section_and_auth(&site_name);
                 message.push_str(&format!("\n{notes}"));
+
+                // The pre-run removal only catches a phantom "[K2SITENAME]"
+                // site left over from a PRIOR run - if this run's own
+                // "K2 Workspace - Create K2 Workspace Site" target hit the
+                // same unresolved-token bug again, the phantom site (and
+                // its port binding) would only exist from partway through
+                // this run onward, so check again now that it's over.
+                remove_stale_bracketed_workspace_site();
+                let start_notes = start_real_k2_site(&site_name);
+                message.push_str(&format!("\n{start_notes}"));
             }
 
             result
