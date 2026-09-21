@@ -20,6 +20,8 @@ namespace DotNetRunner
                     return SqlServerCheck.DropDatabase(args);
                 case "ad-check":
                     return ActiveDirectoryCheck.CheckObjects(args);
+                case "fix-claim-realm-issuers":
+                    return SqlServerCheck.FixClaimRealmIssuers(args);
                 default:
                     Console.WriteLine($"Processed by .NET Framework {Environment.Version}: {args[0]}");
                     return 0;

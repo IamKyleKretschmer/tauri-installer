@@ -213,6 +213,88 @@ namespace DotNetRunner
             return 1;
         }
 
+        /// <summary>
+        /// Real evidence: comparing a broken environment's Identity.ClaimIssuer/
+        /// ClaimRealmIssuer rows against a genuinely working one - both have the
+        /// same two ClaimIssuer rows (K2 Windows STS id=1, K2 Forms STS id=2) -
+        /// showed the working box's ClaimRealmIssuer cross-joins EVERY issuer
+        /// against EVERY realm (issuer 2 mapped to all 4 realms, same as issuer
+        /// 1), while the broken box only ever got rows for issuer 1 - issuer 2
+        /// (Forms STS) has zero ClaimRealmIssuer rows at all. With no realm
+        /// trusting Forms STS, K2's own ClaimsAuthenticationModule has nowhere
+        /// valid to send an unauthenticated visitor whose realm depends on that
+        /// issuer, which is consistent with Workspace/Management/Designer just
+        /// bouncing back to themselves instead of ever reaching a real sign-in
+        /// endpoint ("redirected you too many times").
+        ///
+        /// Backfills the gap using only rows already present in this database -
+        /// every (IssuerID, RealmID) pair implied by the realms that already
+        /// appear somewhere in ClaimRealmIssuer, for every issuer that's
+        /// missing one - rather than a hardcoded realm count, since the real
+        /// set of realms (and whether ADFS/Azure AD issuers even exist here)
+        /// varies per install. Purely additive and idempotent: never touches an
+        /// (IssuerID, RealmID) pair that already exists.
+        /// args: [0]=fix-claim-realm-issuers, [1]=server, [2]=auth mode, [3]=username, [4]=password, [5]=database.
+        /// </summary>
+        public static int FixClaimRealmIssuers(string[] args)
+        {
+            if (args.Length < 6)
+            {
+                Console.Error.WriteLine("Usage: DotNetRunner.exe fix-claim-realm-issuers <server> <sql|windows> <username> <password> <database>");
+                return 1;
+            }
+
+            string server = string.IsNullOrWhiteSpace(args[1]) ? @".\SQLEXPRESS" : args[1];
+            string authMode = args[2];
+            string username = args[3];
+            string password = args[4];
+            string database = string.IsNullOrWhiteSpace(args[5]) ? "K2" : args[5];
+
+            SqlException lastError = null;
+
+            foreach (string masterConnectionString in BuildCandidateConnectionStrings(server, authMode, username, password))
+            {
+                try
+                {
+                    var dbBuilder = new SqlConnectionStringBuilder(masterConnectionString) { InitialCatalog = database };
+                    using (var connection = new SqlConnection(dbBuilder.ConnectionString))
+                    {
+                        connection.Open();
+
+                        int inserted;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = @"
+INSERT INTO Identity.ClaimRealmIssuer (IssuerID, RealmID)
+SELECT ci.ID, r.RealmID
+FROM Identity.ClaimIssuer ci
+CROSS JOIN (SELECT DISTINCT RealmID FROM Identity.ClaimRealmIssuer) r
+WHERE NOT EXISTS (
+    SELECT 1 FROM Identity.ClaimRealmIssuer cri
+    WHERE cri.IssuerID = ci.ID AND cri.RealmID = r.RealmID
+);";
+                            inserted = command.ExecuteNonQuery();
+                        }
+
+                        Console.WriteLine($"ClaimRealmIssuer backfill against '{database}' on {server}: {inserted} row(s) inserted.");
+                        return 0;
+                    }
+                }
+                catch (SqlException ex)
+                {
+                    lastError = ex;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Unexpected error backfilling ClaimRealmIssuer on '{server}': {ex.Message}");
+                    return 1;
+                }
+            }
+
+            Console.Error.WriteLine($"Could not connect to '{server}': {lastError?.Message}");
+            return 1;
+        }
+
         private static IEnumerable<string> BuildCandidateConnectionStrings(string server, string authMode, string username, string password)
         {
             if (string.Equals(authMode, "windows", StringComparison.OrdinalIgnoreCase))

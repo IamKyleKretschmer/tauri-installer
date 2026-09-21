@@ -1613,6 +1613,37 @@ fn reset_k2_database(instance: &str, auth_mode: &str, username: &str, password: 
         .output();
 }
 
+/// Real evidence: comparing a broken environment's Identity.ClaimIssuer/
+/// ClaimRealmIssuer rows against a genuinely working one showed the working
+/// box's ClaimRealmIssuer table cross-joins every issuer (K2 Windows STS,
+/// K2 Forms STS, and any ADFS/Azure AD ones configured) against every realm,
+/// while the broken box only ever got rows for the Windows STS issuer - Forms
+/// STS had zero ClaimRealmIssuer rows at all. With no realm trusting Forms
+/// STS, K2's own ClaimsAuthenticationModule has nowhere valid to send an
+/// unauthenticated visitor, which lines up with the "redirected you too many
+/// times" loop on Workspace/Management/Designer: none of their web.config
+/// files were wrong (confirmed identical to a working install's), so this
+/// database gap is what's left. DotNetRunner's fix-claim-realm-issuers
+/// backfills only the missing (IssuerID, RealmID) pairs, using realms that
+/// already exist in the table - safe to run unconditionally after every
+/// install, whether or not this particular gap is present.
+#[cfg(target_os = "windows")]
+fn fix_claim_realm_issuers(instance: &str, auth_mode: &str, username: &str, password: &str, database: &str) -> String {
+    let runner = crate::commands::dotnet_runner_path();
+    match Command::new(&runner)
+        .args(["fix-claim-realm-issuers", instance, auth_mode, username, password, database])
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        Ok(out) => format!(
+            "ClaimRealmIssuer backfill failed: {}{}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ),
+        Err(e) => format!("Failed to launch DotNetRunner for ClaimRealmIssuer backfill: {e}"),
+    }
+}
+
 #[tauri::command]
 pub async fn run_real_installer(
     installation_folder: String,
@@ -1707,6 +1738,9 @@ pub async fn run_real_installer(
                 // more restrictive ACLs on top of what's already there.
                 let acl_notes = grant_iis_read_access_to_k2_webservices();
                 message.push_str(&format!("\n{acl_notes}"));
+
+                let claims_notes = fix_claim_realm_issuers(&sql_instance, &sql_auth_mode, &sql_username, &sql_password, &sql_database);
+                message.push_str(&format!("\n{claims_notes}"));
 
                 let start_notes = start_real_k2_site(&site_name);
                 message.push_str(&format!("\n{start_notes}"));
