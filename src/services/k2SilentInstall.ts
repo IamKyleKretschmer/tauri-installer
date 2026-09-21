@@ -345,8 +345,13 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // defined here, SetupManager substitutes nothing and passes the raw,
     // unresolved "[K2APPPOOL]" text straight into AppPool.Add/AppPoolExists
     // - the actual cause of the app pool creation failure, not IIS itself.
+    // The .NET 4 pool's real name is confirmed against a genuinely working
+    // K2 Five install's own IIS Manager (Management and Designer/K2Workflow
+    // both show app pool "K2_net4", not a descriptive "K2 AppPool - .NET 4"
+    // - that made-up name was this app's own invention, never observed on
+    // a real machine).
     ["K2APPPOOL", `${iisConfig.siteName || "K2"} AppPool`],
-    ["K2APPPOOL_NET4", `${iisConfig.siteName || "K2"} AppPool - .NET 4`],
+    ["K2APPPOOL_NET4", `${iisConfig.siteName || "K2"}_net4`],
     // Real trace log evidence: DoClaimsConfig.EnsureIdVars logs "Variable
     // [K2SITEURL_SSL] not populated, moving on" / same for [K2SITEURL]
     // right at startup when these are undefined, which skips setting up
