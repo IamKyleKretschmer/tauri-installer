@@ -1050,21 +1050,27 @@ $results -join "`n"
 
 /// Real evidence: a browser hitting a genuinely running site/app still got
 /// "HTTP Error 500.19 ... Cannot read configuration file due to
-/// insufficient permissions" on `C:\Program Files\K2\WebServices\web.config`
-/// (error code 0x80070005 - ACCESS_DENIED). configure_iis_site creates that
-/// folder itself via a plain `New-Item -ItemType Directory`, which only
-/// inherits whatever ACL `C:\Program Files\K2` already has - and unlike a
-/// real IIS content folder under inetpub, that never includes IIS_IUSRS (the
-/// group every ApplicationPoolIdentity app pool identity is transparently a
-/// member of at runtime), so the app pool worker process can create/run the
-/// site but can't actually read its own web.config once K2's real files land
-/// there. Grants Read & Execute recursively so every K2 web app under the
-/// site (not just whichever one happened to be requested first) can read its
-/// own config and content.
+/// insufficient permissions" (error code 0x80070005 - ACCESS_DENIED) on the
+/// app's own web.config. First seen on `C:\Program Files\K2\WebServices\
+/// web.config` (configure_iis_site's own scaffold folder, before the real
+/// install ran) - fixed by granting IIS_IUSRS there. Seen AGAIN afterward on
+/// a genuinely completed install, this time on `C:\Program Files\K2\K2
+/// smartforms Runtime\web.config`: once SetupManager's own targets run, it
+/// repoints each app (Management, Designer, Runtime, ...) at its real,
+/// separately-named install folder directly under `C:\Program Files\K2\`
+/// (matching the physical paths a genuinely working install's own IIS
+/// Manager shows), not the WebServices scaffold at all - so the earlier,
+/// narrowly-scoped grant never covered it. Neither of these folders inherits
+/// IIS_IUSRS (the group every ApplicationPoolIdentity app pool identity is
+/// transparently a member of at runtime) from `C:\Program Files\K2` the way
+/// a real IIS content folder under inetpub would. Grant recursively on the
+/// whole `C:\Program Files\K2` tree instead of one specific subfolder, so
+/// every one of K2's real per-component install folders is covered
+/// regardless of what SetupManager ends up naming/placing it under.
 #[cfg(target_os = "windows")]
 fn grant_iis_read_access_to_k2_webservices() -> String {
     let script = r#"
-$path = "$env:ProgramFiles\K2\WebServices"
+$path = "$env:ProgramFiles\K2"
 if (Test-Path -LiteralPath $path) {
     icacls $path /grant "IIS_IUSRS:(OI)(CI)RX" /T /C 2>&1 | Out-String
 } else {
