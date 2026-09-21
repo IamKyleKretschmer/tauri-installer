@@ -1631,64 +1631,41 @@ pub async fn run_real_installer(
             remove_stale_bracketed_workspace_site();
             let site_name = extract_answer_file_value(&silent_xml_contents, "SITENAME").unwrap_or_else(|| "K2".to_string());
 
-            let mut result = match run_real_installer_once(&folder, &xml_path) {
-                Ok(message) => Ok(message),
-                Err(err) if is_transient_service_race(&err) => {
+            // Real evidence (InstallerTrace260921_14.zip): a single install
+            // run can hit more than one of these known-recoverable error
+            // classes in sequence, not just the same one repeatedly - here,
+            // attempt 1 hit is_transient_deployment_socket_error (deploying
+            // "K2 for SharePoint 2013.kspx"), the automatic retry correctly
+            // fired, but attempt 2 then hit a *different* recoverable class,
+            // is_stale_deployment_state (NullReferenceException inside
+            // DeploySessionResultsRecievedState, deploying
+            // "Management_update3.kspx"). A retry loop scoped to just its
+            // own error class (the previous shape of this code) has no way
+            // to notice that switch - it only re-checks the class it started
+            // with, "breaks" the moment the error looks different, and
+            // returns that different error as final instead of ever
+            // resetting the database for it. Reclassify from scratch after
+            // every attempt instead, so whichever recovery matches the
+            // error actually in front of it runs, for as many attempts as
+            // it takes (bounded, so a genuinely unrecoverable error still
+            // gives up rather than looping forever).
+            const MAX_INSTALL_ATTEMPTS: u32 = 5;
+            let mut result = run_real_installer_once(&folder, &xml_path);
+            let mut attempts = 1;
+            while attempts < MAX_INSTALL_ATTEMPTS {
+                let Err(err) = &result else { break };
+                if is_transient_service_race(err) || is_transient_deployment_socket_error(err) {
                     wait_for_k2_server_port();
-                    run_real_installer_once(&folder, &xml_path)
-                }
-                Err(err) if is_transient_deployment_socket_error(&err) => {
-                    // Real evidence: this flaky socket drop can recur on a
-                    // second attempt in a row (confirmed - a retry hit the
-                    // exact same "forcibly closed by the remote host" error
-                    // again before finally succeeding on a third, manual
-                    // re-run), so one retry alone isn't always enough. Keep
-                    // retrying while this exact error class keeps recurring,
-                    // up to a small bounded number of extra attempts, rather
-                    // than giving up and terminating the whole install on
-                    // what's ultimately just network flakiness.
-                    //
-                    // Real evidence (InstallerTrace260921_11.log): this can
-                    // also be a fatal, install-terminating failure rather
-                    // than a background warning, hitting "Register_Control_
-                    // Reporting" (ControlUtil's RegisterControlTypes) right
-                    // after a long run of "StartService: Success: True"
-                    // entries for the K2 Server engine - i.e. the same
-                    // "engine not actually ready to accept BaseAPI
-                    // connections yet" race is_transient_service_race
-                    // already retries for a *refused* connection, just
-                    // manifesting as a *reset* one instead once the engine
-                    // accepts the connection but isn't ready to serve it.
-                    // Wait for the port the same way before each retry here
-                    // too, instead of immediately re-hitting a server that
-                    // may still not be ready.
-                    wait_for_k2_server_port();
-                    let mut attempt_result = run_real_installer_once(&folder, &xml_path);
-                    for _ in 0..2 {
-                        match &attempt_result {
-                            Err(retry_err) if is_transient_deployment_socket_error(retry_err) => {
-                                wait_for_k2_server_port();
-                                attempt_result = run_real_installer_once(&folder, &xml_path);
-                            }
-                            _ => break,
-                        }
-                    }
-                    attempt_result
-                }
-                Err(err) if is_stale_security_context(&err) => {
+                } else if is_stale_security_context(err) {
                     restart_k2_server_engine();
-                    run_real_installer_once(&folder, &xml_path)
-                }
-                Err(err) if is_stale_deployment_state(&err) => {
+                } else if is_stale_deployment_state(err) {
                     reset_k2_database(&sql_instance, &sql_auth_mode, &sql_username, &sql_password, &sql_database);
                     // A fresh database has none of the earlier targets'
                     // completions recorded against it - force a full
                     // replay from scratch rather than resuming a journal
                     // that thinks most of the install already happened.
                     clear_install_history_journal();
-                    run_real_installer_once(&folder, &xml_path)
-                }
-                Err(err) if is_k2services_scripting_section_conflict(&err) => {
+                } else if is_k2services_scripting_section_conflict(err) {
                     // These six targets never got marked complete in the
                     // journal, so the retry will re-attempt them (unlike
                     // the earlier, already-succeeded targets it skips).
@@ -1697,10 +1674,14 @@ pub async fn run_real_installer(
                     // K2Services\web.config succeed instead of hitting the
                     // exact same "duplicate section defined" error again.
                     let _ = fix_k2services_scripting_section_and_auth(&site_name);
-                    run_real_installer_once(&folder, &xml_path)
+                } else {
+                    // Not a known-recoverable class - stop retrying and
+                    // surface this error as-is.
+                    break;
                 }
-                Err(err) => Err(err),
-            };
+                attempts += 1;
+                result = run_real_installer_once(&folder, &xml_path);
+            }
 
             if let Ok(message) = &mut result {
                 let notes = fix_k2services_scripting_section_and_auth(&site_name);
