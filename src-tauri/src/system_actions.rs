@@ -260,6 +260,13 @@ Set-ItemProperty "IIS:\AppPools\$site" -Name managedPipelineMode -Value Classic
 
 $sitePhysicalPath = "$env:ProgramFiles\K2\WebServices"
 New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
+# A freshly created folder only inherits C:\Program Files\K2's own ACL,
+# which never includes IIS_IUSRS (every ApplicationPoolIdentity app pool's
+# implicit membership at runtime) the way a real inetpub content folder
+# would - without this, the app pool can run the site but not read its own
+# web.config once K2's real files land here ("500.19 ... insufficient
+# permissions").
+icacls $sitePhysicalPath /grant "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
 New-Website -Name $site -Port $httpPort -HostHeader $hostHeader -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
 
 foreach ($app in $webApps) {{
@@ -1041,6 +1048,32 @@ $results -join "`n"
     run_powershell(&script).unwrap_or_else(|e| format!("Failed to run site-start script: {e}"))
 }
 
+/// Real evidence: a browser hitting a genuinely running site/app still got
+/// "HTTP Error 500.19 ... Cannot read configuration file due to
+/// insufficient permissions" on `C:\Program Files\K2\WebServices\web.config`
+/// (error code 0x80070005 - ACCESS_DENIED). configure_iis_site creates that
+/// folder itself via a plain `New-Item -ItemType Directory`, which only
+/// inherits whatever ACL `C:\Program Files\K2` already has - and unlike a
+/// real IIS content folder under inetpub, that never includes IIS_IUSRS (the
+/// group every ApplicationPoolIdentity app pool identity is transparently a
+/// member of at runtime), so the app pool worker process can create/run the
+/// site but can't actually read its own web.config once K2's real files land
+/// there. Grants Read & Execute recursively so every K2 web app under the
+/// site (not just whichever one happened to be requested first) can read its
+/// own config and content.
+#[cfg(target_os = "windows")]
+fn grant_iis_read_access_to_k2_webservices() -> String {
+    let script = r#"
+$path = "$env:ProgramFiles\K2\WebServices"
+if (Test-Path -LiteralPath $path) {
+    icacls $path /grant "IIS_IUSRS:(OI)(CI)RX" /T /C 2>&1 | Out-String
+} else {
+    "Skipped granting IIS_IUSRS read access: $path does not exist."
+}
+"#;
+    run_powershell(script).unwrap_or_else(|e| format!("Failed to grant IIS_IUSRS access: {e}"))
+}
+
 /// Real root cause, confirmed against K2Services' own real web.config
 /// (user-supplied) plus a real IIS "Add Roles and Features" screenshot
 /// showing ".NET Framework 3.5 Features (Installed)": that Windows
@@ -1663,6 +1696,14 @@ pub async fn run_real_installer(
                 // its port binding) would only exist from partway through
                 // this run onward, so check again now that it's over.
                 remove_stale_bracketed_workspace_site();
+
+                // Re-grant now too, not just in configure_iis_site: the
+                // real K2 files land in this folder well after that early
+                // grant ran, and a package extraction can lay down its own,
+                // more restrictive ACLs on top of what's already there.
+                let acl_notes = grant_iis_read_access_to_k2_webservices();
+                message.push_str(&format!("\n{acl_notes}"));
+
                 let start_notes = start_real_k2_site(&site_name);
                 message.push_str(&format!("\n{start_notes}"));
             }
