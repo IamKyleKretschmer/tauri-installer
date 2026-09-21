@@ -1181,6 +1181,73 @@ fn fix_k2services_scripting_section_and_auth(site_name: &str) -> String {
     notes.join(" | ")
 }
 
+/// Real evidence: a customer's actual, deployed K2 smartforms web.config
+/// (Workspace/Management/Runtime all share this one physical file, per IIS
+/// - confirmed via Basic Settings showing all three apps pointed at
+/// `C:\Program Files\K2\K2 smartforms Runtime`) still had
+/// `<wsFederation passiveRedirectEnabled="false" issuer="http://none"
+/// realm="https://<host>/Runtime/" requireHttps="false" />` - the vendor
+/// template's own unconfigured placeholder, never rewritten to a real STS
+/// URL. `passiveRedirectEnabled="false"` means the WSFederationAuthentication
+/// Module never automatically challenges an unauthenticated visitor by
+/// redirecting them to the issuer at all; even if it did,
+/// `issuer="http://none"` isn't a real endpoint. With no working way to
+/// reach the STS, an unauthenticated visit to Workspace/Management/Designer
+/// has nothing to do but bounce back to Workspace's own default page -
+/// which is unauthenticated again, forever - exactly the "redirected you
+/// too many times" loop this fixes, confirmed by the browser HAR: every
+/// request in the loop is a same-URL redirect with zero cookies ever set,
+/// and it never once touches `/Identity/Sts/...`.
+///
+/// This is a distinct, custom `<system.identityModel.services>` section
+/// AppCmd has no notion of (it only edits `system.webServer` sections the
+/// way fix_k2services_scripting_section_and_auth does), so this patches the
+/// file directly instead - scoped to only ever replacing this exact,
+/// unmistakably-unconfigured placeholder text, never touching a
+/// `wsFederation` element that's already been set to something real.
+#[cfg(target_os = "windows")]
+fn fix_wsfederation_issuer_in_k2_webconfigs(sts_issuer_url: &str) -> String {
+    let mut notes: Vec<String> = Vec::new();
+    let mut patched = 0u32;
+    let mut checked = 0u32;
+
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some("web.config") {
+                out.push(path);
+            }
+        }
+    }
+
+    let mut web_configs = Vec::new();
+    walk(&PathBuf::from(r"C:\Program Files\K2"), &mut web_configs);
+
+    for path in web_configs {
+        checked += 1;
+        let Some(contents) = read_utf16le_file(&path) else { continue };
+        if !contents.contains("issuer=\"http://none\"") {
+            continue;
+        }
+        let fixed = contents
+            .replace("issuer=\"http://none\"", &format!("issuer=\"{sts_issuer_url}\""))
+            .replace("passiveRedirectEnabled=\"false\"", "passiveRedirectEnabled=\"true\"");
+        match write_utf16le_file(&path, &fixed) {
+            Ok(()) => {
+                patched += 1;
+                notes.push(format!("Patched wsFederation issuer in {}", path.display()));
+            }
+            Err(e) => notes.push(format!("Found unconfigured wsFederation issuer in {} but failed to write it back: {e}", path.display())),
+        }
+    }
+
+    notes.push(format!("wsFederation issuer check: {checked} web.config file(s) scanned under C:\\Program Files\\K2, {patched} patched."));
+    notes.join(" | ")
+}
+
 /// K2's own web.config files are written as UTF-16LE with a BOM (confirmed
 /// via `file` against a real K2Services\web.config: "Unicode text, UTF-16,
 /// little-endian" - matching the file's own `encoding="utf-16"` XML
@@ -1707,6 +1774,19 @@ pub async fn run_real_installer(
                 // more restrictive ACLs on top of what's already there.
                 let acl_notes = grant_iis_read_access_to_k2_webservices();
                 message.push_str(&format!("\n{acl_notes}"));
+
+                // Real evidence: Workspace/Management/Designer's own
+                // wsFederation issuer is still the vendor's unconfigured
+                // "http://none" placeholder even after a genuinely
+                // successful install, which is what turns any unauthenticated
+                // visit into an infinite self-redirect instead of a real
+                // sign-in. K2SITEURL_SSL is the same real site URL already
+                // used to build every other real per-site token above.
+                if let Some(site_url_ssl) = extract_answer_file_value(&silent_xml_contents, "K2SITEURL_SSL") {
+                    let sts_issuer_url = format!("{}/Identity/Sts/Windows", site_url_ssl.trim_end_matches('/'));
+                    let wsfed_notes = fix_wsfederation_issuer_in_k2_webconfigs(&sts_issuer_url);
+                    message.push_str(&format!("\n{wsfed_notes}"));
+                }
 
                 let start_notes = start_real_k2_site(&site_name);
                 message.push_str(&format!("\n{start_notes}"));
