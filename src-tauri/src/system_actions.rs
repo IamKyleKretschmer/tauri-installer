@@ -1647,10 +1647,27 @@ pub async fn run_real_installer(
                     // up to a small bounded number of extra attempts, rather
                     // than giving up and terminating the whole install on
                     // what's ultimately just network flakiness.
+                    //
+                    // Real evidence (InstallerTrace260921_11.log): this can
+                    // also be a fatal, install-terminating failure rather
+                    // than a background warning, hitting "Register_Control_
+                    // Reporting" (ControlUtil's RegisterControlTypes) right
+                    // after a long run of "StartService: Success: True"
+                    // entries for the K2 Server engine - i.e. the same
+                    // "engine not actually ready to accept BaseAPI
+                    // connections yet" race is_transient_service_race
+                    // already retries for a *refused* connection, just
+                    // manifesting as a *reset* one instead once the engine
+                    // accepts the connection but isn't ready to serve it.
+                    // Wait for the port the same way before each retry here
+                    // too, instead of immediately re-hitting a server that
+                    // may still not be ready.
+                    wait_for_k2_server_port();
                     let mut attempt_result = run_real_installer_once(&folder, &xml_path);
                     for _ in 0..2 {
                         match &attempt_result {
                             Err(retry_err) if is_transient_deployment_socket_error(retry_err) => {
+                                wait_for_k2_server_port();
                                 attempt_result = run_real_installer_once(&folder, &xml_path);
                             }
                             _ => break,
