@@ -97,6 +97,7 @@ export const tauriBridge = {
     httpsPort: string;
     appPoolIdentity: string;
     certificateThumbprint: string;
+    hostname: string;
   }) =>
     invoke<string>("configure_iis_site", {
       siteName: params.siteName,
@@ -104,6 +105,7 @@ export const tauriBridge = {
       httpsPort: params.httpsPort,
       appPoolIdentity: params.appPoolIdentity,
       certificateThumbprint: params.certificateThumbprint,
+      hostname: params.hostname,
     }),
   copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
   downloadK2Package: (packageSource: string) => invoke<string>("download_k2_package", { packageSource }),

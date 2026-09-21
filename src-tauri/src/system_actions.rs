@@ -209,6 +209,7 @@ pub async fn configure_iis_site(
     https_port: String,
     app_pool_identity: String,
     certificate_thumbprint: String,
+    hostname: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
@@ -223,6 +224,22 @@ pub async fn configure_iis_site(
 
         let web_apps_list = K2_WEB_APPS.join(",");
 
+        // Same cleanup k2SilentInstall.ts's cleanHostname does: a bare host
+        // (or empty, from a dev/no-hostname run) - never a URL. Real
+        // evidence: without a host header on the bindings at all, IIS's own
+        // "Browse Application" panel falls back to generic "*:80 (http)" /
+        // "*:443 (https)" links instead of a real "Browse <host> on :443"
+        // one, which is also what a customer machine's site never starting
+        // under its real name looked like - the site itself still worked,
+        // but nothing pointed a browser (or K2's own site-URL config) at
+        // the actual hostname it expects to be reachable on.
+        let clean_hostname = hostname.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/');
+        let host_header = if clean_hostname.is_empty() || clean_hostname.eq_ignore_ascii_case("localhost") {
+            String::new()
+        } else {
+            clean_hostname.to_string()
+        };
+
         let script = format!(
             r#"
 Import-Module WebAdministration -ErrorAction Stop
@@ -231,6 +248,7 @@ $httpPort = {http_port}
 $httpsPort = {https_port}
 $identity = '{identity_value}'
 $thumbprint = '{certificate_thumbprint}'
+$hostHeader = '{host_header}'
 $webApps = '{web_apps_list}' -split ','
 
 if (Get-Website -Name $site -ErrorAction SilentlyContinue) {{ Remove-Website -Name $site }}
@@ -242,7 +260,7 @@ Set-ItemProperty "IIS:\AppPools\$site" -Name managedPipelineMode -Value Classic
 
 $sitePhysicalPath = "$env:ProgramFiles\K2\WebServices"
 New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
-New-Website -Name $site -Port $httpPort -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
+New-Website -Name $site -Port $httpPort -HostHeader $hostHeader -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
 
 foreach ($app in $webApps) {{
     $appPoolName = "$site $app"
@@ -262,7 +280,7 @@ foreach ($app in $webApps) {{
 }}
 
 if ($httpsPort -gt 0) {{
-    New-WebBinding -Name $site -Protocol https -Port $httpsPort -ErrorAction SilentlyContinue | Out-Null
+    New-WebBinding -Name $site -Protocol https -Port $httpsPort -HostHeader $hostHeader -ErrorAction SilentlyContinue | Out-Null
     if ($thumbprint) {{
         $binding = Get-WebBinding -Name $site -Protocol https
         $binding.AddSslCertificate($thumbprint, "my")
@@ -276,7 +294,7 @@ if ($httpsPort -gt 0) {{
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (site_name, http_port, https_port, app_pool_identity, certificate_thumbprint);
+        let _ = (site_name, http_port, https_port, app_pool_identity, certificate_thumbprint, hostname);
         unsupported("Configuring the IIS site")
     }
     })

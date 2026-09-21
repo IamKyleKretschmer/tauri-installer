@@ -233,6 +233,7 @@ export function InstallStep({
           httpsPort: config.httpsPort,
           appPoolIdentity: config.appPoolIdentity,
           certificateThumbprint: config.sslCertificate,
+          hostname: hostnameRef.current,
         });
       },
       tls: () => disableLegacyTls(),
