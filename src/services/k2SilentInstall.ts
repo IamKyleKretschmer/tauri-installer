@@ -317,7 +317,20 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["WORKSPASS", adConfig.servicePassword],
     ["JSSP_AD_USER_NAME", adConfig.serviceAccount],
     ["JSSP_PASS", adConfig.servicePassword],
-    ["SETSPN", "False"],
+    // Real evidence: a genuinely completed install (IIS site, claims DB,
+    // pipeline mode all confirmed correct against a working reference
+    // machine) still hit "Primary Credentials Not Authenticated. Session
+    // Not Authenticated." on every attempt to actually sign in - a classic
+    // Kerberos double-hop symptom (browser -> IIS authenticates fine, but
+    // IIS can't then hand that identity to the K2 Server engine over
+    // BaseAPI without a registered SPN enabling constrained delegation).
+    // This was the one token in this entire file with no supporting
+    // comment/evidence - just hardcoded to skip SPN registration outright.
+    // Register the SPN instead of skipping it. (Requires the service
+    // account/installing identity to actually have rights to write SPNs in
+    // AD - if that's missing, this specific step may need a real domain
+    // admin to run setspn manually instead.)
+    ["SETSPN", "True"],
     ["SERVICE_NAME", "K2 Server"],
     ["ISONDOMAIN", "true"],
     ["USRMGRTYPE", "UMTYPE_ADUM"],
