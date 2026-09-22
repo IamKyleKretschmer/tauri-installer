@@ -264,13 +264,19 @@ namespace DotNetRunner
                         int inserted;
                         using (var command = connection.CreateCommand())
                         {
+                            // IDENTITY is a reserved T-SQL keyword (used for
+                            // IDENTITY columns / IDENTITY_INSERT) - real
+                            // evidence: running this unbracketed against a
+                            // real K2 database threw "Incorrect syntax near
+                            // the keyword 'Identity'" on every reference.
+                            // Bracket-quote the schema name throughout.
                             command.CommandText = @"
-INSERT INTO Identity.ClaimRealmIssuer (IssuerID, RealmID)
+INSERT INTO [Identity].ClaimRealmIssuer (IssuerID, RealmID)
 SELECT ci.ID, r.RealmID
-FROM Identity.ClaimIssuer ci
-CROSS JOIN (SELECT DISTINCT RealmID FROM Identity.ClaimRealmIssuer) r
+FROM [Identity].ClaimIssuer ci
+CROSS JOIN (SELECT DISTINCT RealmID FROM [Identity].ClaimRealmIssuer) r
 WHERE NOT EXISTS (
-    SELECT 1 FROM Identity.ClaimRealmIssuer cri
+    SELECT 1 FROM [Identity].ClaimRealmIssuer cri
     WHERE cri.IssuerID = ci.ID AND cri.RealmID = r.RealmID
 );";
                             inserted = command.ExecuteNonQuery();
