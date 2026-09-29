@@ -30,6 +30,7 @@ pub fn run() {
             system_checks::check_vc_redist,
             system_checks::check_dotnet_hosting_bundle,
             system_checks::check_domain_joined,
+            system_checks::get_netbios_domain,
             system_checks::check_tls12,
             system_checks::check_tls_legacy,
             system_checks::check_ipv4,

@@ -47,6 +47,29 @@ export interface SilentInstallConfig {
    * replaying the full first-install sequence.
    */
   executionType?: "Update";
+  /**
+   * This machine's NETBIOS domain name (e.g. "K2TEST"), from
+   * get_netbios_domain. Used to qualify adConfig.serviceAccount when the
+   * user (or findK2ServiceAccount's auto-fill) provides a bare account
+   * name - confirmed via a real trace log that SQL Server's CREATE LOGIN
+   * ... FROM WINDOWS rejects a bare name outright ("is not a valid
+   * Windows NT name. Give the complete name: <domain\username>"), even
+   * though SetupManager's own earlier password/AD validators accept one
+   * just fine. Left undefined, accounts are passed through unqualified,
+   * same as before this field existed.
+   */
+  netbiosDomain?: string;
+}
+
+/** Prefixes a bare account name with its NETBIOS domain (DOMAIN\user) so
+ *  SQL Server's CREATE LOGIN ... FROM WINDOWS can resolve it - a name
+ *  that already has a domain\ or user@domain form is left untouched. */
+function qualifyAccount(account: string, netbiosDomain?: string): string {
+  const trimmed = account.trim();
+  if (!trimmed || trimmed.includes("\\") || trimmed.includes("@") || !netbiosDomain) {
+    return trimmed;
+  }
+  return `${netbiosDomain}\\${trimmed}`;
 }
 
 function escapeXml(value: string): string {
@@ -105,8 +128,19 @@ function deriveBytesFromString(source: string, length: number): Uint8Array {
 }
 
 export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
-  const { sqlConfig, iisConfig, adConfig, networkConfig, productVersion, licenseKey, machineKey, computerName, executionType } =
-    config;
+  const {
+    sqlConfig,
+    iisConfig,
+    adConfig,
+    networkConfig,
+    productVersion,
+    licenseKey,
+    machineKey,
+    computerName,
+    executionType,
+    netbiosDomain,
+  } = config;
+  const qualifiedServiceAccount = qualifyAccount(adConfig.serviceAccount, netbiosDomain);
 
   // A blank/missing encryption key set is what SetupManager's
   // "EncryptionValidation: Unable to validate encryption" actually turns
@@ -316,9 +350,9 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     ["WEBWORKFLOWDBNAME", dbName],
     ["WEBWORKFLOWCONNECTIONSTRING", dbConnectionString],
     ["WEBDESIGNERCONNECTIONSTRING", dbConnectionString],
-    ["ADMINUSER", adConfig.serviceAccount],
+    ["ADMINUSER", qualifiedServiceAccount],
     ["ADMINPASS", adConfig.servicePassword],
-    ["USERSNAME", adConfig.serviceAccount],
+    ["USERSNAME", qualifiedServiceAccount],
     ["USERSPASS", adConfig.servicePassword],
     // Same class of bug as K2HOSTCONNECTIONSTRING, confirmed via real trace
     // log evidence (InstallerTrace260914_3): [WORKSUSER] is only ever set by
@@ -335,9 +369,9 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // ultimately the whole "K2 Site" component failing) - all before this
     // fix, this specific missing token was the real root cause, not IIS or
     // the app pool itself.
-    ["WORKSUSER", adConfig.serviceAccount],
+    ["WORKSUSER", qualifiedServiceAccount],
     ["WORKSPASS", adConfig.servicePassword],
-    ["JSSP_AD_USER_NAME", adConfig.serviceAccount],
+    ["JSSP_AD_USER_NAME", qualifiedServiceAccount],
     ["JSSP_PASS", adConfig.servicePassword],
     ["SETSPN", "False"],
     ["SERVICE_NAME", "K2 Server"],

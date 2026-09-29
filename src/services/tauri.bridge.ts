@@ -57,6 +57,7 @@ export const tauriBridge = {
   checkVcRedist: () => invoke<CheckResult>("check_vc_redist"),
   checkDotnetHostingBundle: () => invoke<CheckResult>("check_dotnet_hosting_bundle"),
   checkDomainJoined: () => invoke<CheckResult>("check_domain_joined"),
+  getNetbiosDomain: () => invoke<string | null>("get_netbios_domain"),
   testSqlConnection: (params: {
     instance: string;
     authMode: string;

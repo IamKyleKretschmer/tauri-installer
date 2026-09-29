@@ -12,6 +12,7 @@ import {
   getComputerName,
   getLatestInstallerLogLine,
   getMachineKey,
+  getNetbiosDomain,
   grantServiceLogonRight,
   removeLocalAdminMembership,
   runRealInstaller,
@@ -258,6 +259,7 @@ export function InstallStep({
         // every time keeps a repeat install from failing on this deterministically.
         await removeLocalAdminMembership(adServiceAccountRef.current);
         const computerName = (await getComputerName()) ?? "";
+        const netbiosDomain = (await getNetbiosDomain()) ?? undefined;
         const xml = buildK2SilentInstallXml({
           sqlConfig: sqlConfigRef.current,
           iisConfig: config,
@@ -272,6 +274,7 @@ export function InstallStep({
           licenseKey: licenseKeyRef.current,
           machineKey: retrievedMachineKey ?? "",
           computerName,
+          netbiosDomain,
         });
         const pollHandle = window.setInterval(() => {
           getLatestInstallerLogLine().then((line) => {

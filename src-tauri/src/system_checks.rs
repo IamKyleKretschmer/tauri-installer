@@ -706,6 +706,28 @@ pub fn check_domain_joined() -> CheckResult {
     }
 }
 
+/// Returns this machine's NETBIOS-style domain name (e.g. "K2TEST"), as
+/// opposed to the DNS FQDN ("k2test.com") check_domain_joined reports.
+/// Real bug found the hard way: SQL Server's CREATE LOGIN ... FROM WINDOWS
+/// rejects a bare account name ("SAF-K2test2153-K2Svc") with "is not a
+/// valid Windows NT name. Give the complete name: <domain\username>." -
+/// unlike SetupManager's own password/AD validators, which accept a bare
+/// name just fine earlier in the same run. $env:USERDOMAIN (the NETBIOS
+/// domain of the currently logged-on user) is what's needed to qualify
+/// the service account before it reaches that SQL step, not a guess
+/// derived from the FQDN (which can differ from the real NETBIOS name).
+#[tauri::command]
+pub fn get_netbios_domain() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("USERDOMAIN").ok().filter(|s| !s.is_empty())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Looks for a K2 service account already configured on this machine (a
 /// prior real install typically registers K2's Windows services to run
 /// as a real domain account like DOMAIN\<HOST>-K2Svc) so the wizard can

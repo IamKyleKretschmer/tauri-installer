@@ -564,6 +564,10 @@ export async function getComputerName(): Promise<string | null> {
   return tauriBridge.getComputerName().catch(() => null);
 }
 
+export async function getNetbiosDomain(): Promise<string | null> {
+  return tauriBridge.getNetbiosDomain().catch(() => null);
+}
+
 /** Latest meaningful line from the real installer's own live trace log, for progress display while it runs. */
 export async function getLatestInstallerLogLine(): Promise<string | null> {
   return tauriBridge.getLatestInstallerLogLine().catch(() => null);
