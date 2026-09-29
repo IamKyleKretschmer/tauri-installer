@@ -624,11 +624,22 @@ foreach ($protocol in $protocols) {
     .map_err(|e| format!("Background task failed: {e}"))?
 }
 
-/// Grants the given account the "Log on as a service" local security
-/// policy right (SeServiceLogonRight), via the standard secedit
-/// export/edit/import approach (there is no direct PowerShell cmdlet for
-/// user rights assignment). Scoped to just this one right for this one
-/// account; removing the account from that policy undoes it.
+/// Grants the given account the "Log on as a service" (SeServiceLogonRight)
+/// AND "Log on as a batch job" (SeBatchLogonRight) local security policy
+/// rights, via the standard secedit export/edit/import approach (there is
+/// no direct PowerShell cmdlet for user rights assignment). Scoped to just
+/// these two rights for this one account; removing the account from that
+/// policy undoes it.
+///
+/// Both rights are real requirements, for two different consumers of this
+/// same account: the K2 Server Windows service needs SeServiceLogonRight
+/// to start under it at all (the original reason this function existed),
+/// while IIS's own Windows Process Activation Service (WAS) separately
+/// requires SeBatchLogonRight before it will start a custom-identity app
+/// pool under this account - confirmed by a real "HTTP Error 503. The
+/// service is unavailable." on every "K2 <App>" app pool switched to
+/// SpecificUser (see configure_iis_site) without this second right, even
+/// though the identity/password themselves were set correctly.
 #[tauri::command]
 pub async fn grant_service_logon_right(account: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -644,21 +655,23 @@ $dbPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).sdb
 secedit /export /cfg $cfgPath /areas USER_RIGHTS | Out-Null
 $content = Get-Content $cfgPath
 
-$existingLine = $content | Select-String '^SeServiceLogonRight'
-if ($existingLine) {{
-    if ($existingLine.Line -notmatch [regex]::Escape($sid)) {{
-        $newLine = $existingLine.Line + ",*$sid"
-        $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+foreach ($right in @('SeServiceLogonRight', 'SeBatchLogonRight')) {{
+    $existingLine = $content | Select-String "^$right"
+    if ($existingLine) {{
+        if ($existingLine.Line -notmatch [regex]::Escape($sid)) {{
+            $newLine = $existingLine.Line + ",*$sid"
+            $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+        }}
+    }} else {{
+        $content += "$right = *$sid"
     }}
-}} else {{
-    $content += "SeServiceLogonRight = *$sid"
 }}
 $content | Set-Content $cfgPath
 
 secedit /configure /db $dbPath /cfg $cfgPath /areas USER_RIGHTS | Out-Null
 Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
 
-"Granted 'Log on as a service' to $account"
+"Granted 'Log on as a service' and 'Log on as a batch job' to $account"
 "#
         );
         run_powershell(&script)
@@ -674,9 +687,9 @@ Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
 }
 
 /// Reverses grant_service_logon_right: removes the given account's SID
-/// from the SeServiceLogonRight local security policy line, via the
-/// same secedit export/edit/import round-trip. Leaves the right intact
-/// for any other accounts already granted it.
+/// from both the SeServiceLogonRight and SeBatchLogonRight local security
+/// policy lines, via the same secedit export/edit/import round-trip.
+/// Leaves the rights intact for any other accounts already granted them.
 #[tauri::command]
 pub async fn revoke_service_logon_right(account: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -692,19 +705,21 @@ $dbPath = Join-Path $env:TEMP "k2-secedit-$([guid]::NewGuid().ToString('N')).sdb
 secedit /export /cfg $cfgPath /areas USER_RIGHTS | Out-Null
 $content = Get-Content $cfgPath
 
-$existingLine = $content | Select-String '^SeServiceLogonRight'
-if ($existingLine) {{
-    $members = $existingLine.Line -replace '^SeServiceLogonRight\s*=\s*', ''
-    $remaining = ($members -split ',') | Where-Object {{ $_ -notmatch [regex]::Escape($sid) }}
-    $newLine = "SeServiceLogonRight = " + ($remaining -join ',')
-    $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+foreach ($right in @('SeServiceLogonRight', 'SeBatchLogonRight')) {{
+    $existingLine = $content | Select-String "^$right"
+    if ($existingLine) {{
+        $members = $existingLine.Line -replace "^$right\s*=\s*", ''
+        $remaining = ($members -split ',') | Where-Object {{ $_ -notmatch [regex]::Escape($sid) }}
+        $newLine = "$right = " + ($remaining -join ',')
+        $content = $content -replace [regex]::Escape($existingLine.Line), $newLine
+    }}
 }}
 $content | Set-Content $cfgPath
 
 secedit /configure /db $dbPath /cfg $cfgPath /areas USER_RIGHTS | Out-Null
 Remove-Item $cfgPath, $dbPath -ErrorAction SilentlyContinue
 
-"Revoked 'Log on as a service' from $account"
+"Revoked 'Log on as a service' and 'Log on as a batch job' from $account"
 "#
         );
         run_powershell(&script)
