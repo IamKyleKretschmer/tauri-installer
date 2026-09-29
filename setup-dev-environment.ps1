@@ -71,7 +71,17 @@ if (Test-Command git) {
 } else {
     Write-Host "[install] Git for Windows..." -ForegroundColor Cyan
     $gitInstaller = Join-Path $tempDir "git-installer.exe"
-    Invoke-WebRequest -Uri "https://github.com/git-for-windows/git/releases/latest/download/Git-64-bit.exe" -OutFile $gitInstaller
+    # git-for-windows release assets embed the version in the filename
+    # (e.g. Git-2.56.0-64-bit.exe), so there is no stable generic-name
+    # download URL. Ask the GitHub Releases API for the actual latest
+    # asset instead of hardcoding a filename that goes stale on every
+    # new release.
+    $gitRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest"
+    $gitAsset = $gitRelease.assets | Where-Object { $_.name -like "*64-bit.exe" } | Select-Object -First 1
+    if (-not $gitAsset) {
+        throw "Could not find a 64-bit Git for Windows installer asset in the latest release."
+    }
+    Invoke-WebRequest -Uri $gitAsset.browser_download_url -OutFile $gitInstaller
     Start-Process -FilePath $gitInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-" -Wait
     Write-Host "Git installed." -ForegroundColor Green
 }
