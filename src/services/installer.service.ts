@@ -317,6 +317,8 @@ export interface IisSiteParams {
   appPoolIdentity: string;
   certificateThumbprint: string;
   hostname: string;
+  serviceAccount?: string;
+  servicePassword?: string;
 }
 
 /** Creates the K2 IIS site and app pool for real (scoped to just that site/app pool name). */

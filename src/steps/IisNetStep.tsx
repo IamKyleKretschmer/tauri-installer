@@ -125,7 +125,7 @@ export function IisNetStep({
       >
         <option>NetworkService</option>
         <option>ApplicationPoolIdentity</option>
-        <option>Custom account</option>
+        <option value="SpecificUser">Custom account (K2 service account)</option>
       </Select>
 
       <Select

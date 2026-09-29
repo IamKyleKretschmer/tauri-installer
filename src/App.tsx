@@ -91,7 +91,15 @@ const DEFAULT_IIS_CONFIG: IisNetConfig = {
   siteName: "K2",
   httpPort: "80",
   httpsPort: "443",
-  appPoolIdentity: "ApplicationPoolIdentity",
+  // "ApplicationPoolIdentity" looks like the safe default but isn't: K2's
+  // own app pools each make service-to-service calls into K2 Server, which
+  // rejects a virtual ApplicationPoolIdentity account outright ("Primary
+  // Credentials Not Authenticated") - confirmed by comparing against a
+  // working environment, whose K2 app pools all run under a real domain
+  // account. "SpecificUser" (paired with the AD service account collected
+  // on the Active Directory step) is what actually needs to ship as the
+  // default.
+  appPoolIdentity: "SpecificUser",
   sslCertificate: "",
   sourceFilesPath: "",
   packageSource: "",

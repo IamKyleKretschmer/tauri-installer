@@ -210,16 +210,44 @@ pub async fn configure_iis_site(
     app_pool_identity: String,
     certificate_thumbprint: String,
     hostname: String,
+    service_account: String,
+    service_password: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
     #[cfg(target_os = "windows")]
     {
-        let identity_value = match app_pool_identity.as_str() {
-            "NetworkService" => "NetworkService",
-            "ApplicationPoolIdentity" => "ApplicationPoolIdentity",
-            // No credential fields exist yet for a genuine custom account,
-            // so fall back to the safe default rather than guessing one.
-            _ => "ApplicationPoolIdentity",
+        // Real root cause, confirmed by directly comparing a broken install's
+        // app pools against a working environment's: every "K2 <App>" app
+        // pool this app creates below (Designer, Runtime, Management, ...)
+        // makes its own service-to-service call into the K2 Server engine
+        // (HostSecurityManager.GetSessionPrimaryCredentials, over the
+        // K2HOSTCONNECTIONSTRING integrated-security connection) using its
+        // own Windows identity - not the end user's. K2 Server has no way to
+        // recognize a virtual ApplicationPoolIdentity account as a valid
+        // primary credential, so EVERY one of these pools fails identically
+        // with "Primary Credentials Not Authenticated" the moment any page
+        // (Designer/Management/Workspace/the OAuth APIs, ...) needs that
+        // session - regardless of whether the interactive user themselves
+        // authenticated fine. The working environment's K2/K2_net4 app pools
+        // run as a real domain account (k2test\K2WebService) for exactly
+        // this reason. "SpecificUser" here is that same fix: run every K2
+        // app pool as the real K2 service account instead of a virtual one.
+        let use_specific_user =
+            app_pool_identity.eq_ignore_ascii_case("SpecificUser") && !service_account.trim().is_empty();
+        let identity_value = if use_specific_user {
+            "SpecificUser"
+        } else {
+            match app_pool_identity.as_str() {
+                "NetworkService" => "NetworkService",
+                _ => "ApplicationPoolIdentity",
+            }
+        };
+        let identity_user = service_account.replace('\'', "''");
+        let identity_pass = service_password.replace('\'', "''");
+        let set_identity_credentials = if use_specific_user {
+            "Set-ItemProperty \"IIS:\\AppPools\\$appPool\" -Name processModel.userName -Value $identityUser\nSet-ItemProperty \"IIS:\\AppPools\\$appPool\" -Name processModel.password -Value $identityPass"
+        } else {
+            ""
         };
 
         let web_apps_list = K2_WEB_APPS.join(",");
@@ -247,15 +275,22 @@ $site = '{site_name}'
 $httpPort = {http_port}
 $httpsPort = {https_port}
 $identity = '{identity_value}'
+$identityUser = '{identity_user}'
+$identityPass = '{identity_pass}'
 $thumbprint = '{certificate_thumbprint}'
 $hostHeader = '{host_header}'
 $webApps = '{web_apps_list}' -split ','
+
+function Set-K2AppPoolIdentity($appPool) {{
+    Set-ItemProperty "IIS:\AppPools\$appPool" -Name processModel.identityType -Value $identity
+    {set_identity_credentials}
+}}
 
 if (Get-Website -Name $site -ErrorAction SilentlyContinue) {{ Remove-Website -Name $site }}
 if (Test-Path "IIS:\AppPools\$site") {{ Remove-WebAppPool -Name $site }}
 
 New-WebAppPool -Name $site | Out-Null
-Set-ItemProperty "IIS:\AppPools\$site" -Name processModel.identityType -Value $identity
+Set-K2AppPoolIdentity $site
 
 $sitePhysicalPath = "$env:ProgramFiles\K2\WebServices"
 New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
@@ -266,13 +301,19 @@ New-Item -ItemType Directory -Force -Path $sitePhysicalPath | Out-Null
 # web.config once K2's real files land here ("500.19 ... insufficient
 # permissions").
 icacls $sitePhysicalPath /grant "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
+if ($identity -eq 'SpecificUser' -and $identityUser) {{
+    # A domain account isn't a member of IIS_IUSRS the way an
+    # ApplicationPoolIdentity virtual account implicitly is, so the grant
+    # above alone leaves it unable to read its own site content.
+    icacls $sitePhysicalPath /grant "${{identityUser}}:(OI)(CI)RX" /T /C | Out-Null
+}}
 New-Website -Name $site -Port $httpPort -HostHeader $hostHeader -PhysicalPath $sitePhysicalPath -ApplicationPool $site -Force | Out-Null
 
 foreach ($app in $webApps) {{
     $appPoolName = "$site $app"
     if (-not (Test-Path "IIS:\AppPools\$appPoolName")) {{
         New-WebAppPool -Name $appPoolName | Out-Null
-        Set-ItemProperty "IIS:\AppPools\$appPoolName" -Name processModel.identityType -Value $identity
+        Set-K2AppPoolIdentity $appPoolName
         # Real evidence: forcing Classic mode here (this app's own earlier
         # assumption, from reading a K2 checklist task rather than testing
         # it) directly caused "This operation requires IIS integrated
@@ -305,7 +346,16 @@ if ($httpsPort -gt 0) {{
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (site_name, http_port, https_port, app_pool_identity, certificate_thumbprint, hostname);
+        let _ = (
+            site_name,
+            http_port,
+            https_port,
+            app_pool_identity,
+            certificate_thumbprint,
+            hostname,
+            service_account,
+            service_password,
+        );
         unsupported("Configuring the IIS site")
     }
     })

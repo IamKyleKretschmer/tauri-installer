@@ -18,7 +18,7 @@ import {
   runRealInstaller,
   testSqlConnection,
 } from "../services/installer.service";
-import { buildK2SilentInstallXml } from "../services/k2SilentInstall";
+import { buildK2SilentInstallXml, qualifyAccount } from "../services/k2SilentInstall";
 
 interface InstallTask {
   id: string;
@@ -226,8 +226,9 @@ export function InstallStep({
         const result = await testSqlConnection(params);
         return result.success ? { ...result, message: result.message + keyNote } : result;
       },
-      iis: () => {
+      iis: async () => {
         const config = iisConfigRef.current;
+        const netbiosDomain = (await getNetbiosDomain()) ?? undefined;
         return configureIisSite({
           siteName: config.siteName,
           httpPort: config.httpPort,
@@ -235,6 +236,8 @@ export function InstallStep({
           appPoolIdentity: config.appPoolIdentity,
           certificateThumbprint: config.sslCertificate,
           hostname: hostnameRef.current,
+          serviceAccount: qualifyAccount(adServiceAccountRef.current, netbiosDomain),
+          servicePassword: adServicePasswordRef.current,
         });
       },
       tls: () => disableLegacyTls(),

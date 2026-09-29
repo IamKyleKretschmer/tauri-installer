@@ -99,6 +99,8 @@ export const tauriBridge = {
     appPoolIdentity: string;
     certificateThumbprint: string;
     hostname: string;
+    serviceAccount?: string;
+    servicePassword?: string;
   }) =>
     invoke<string>("configure_iis_site", {
       siteName: params.siteName,
@@ -107,6 +109,8 @@ export const tauriBridge = {
       appPoolIdentity: params.appPoolIdentity,
       certificateThumbprint: params.certificateThumbprint,
       hostname: params.hostname,
+      serviceAccount: params.serviceAccount ?? "",
+      servicePassword: params.servicePassword ?? "",
     }),
   copyK2Files: (sourceRoot: string) => invoke<string>("copy_k2_files", { sourceRoot }),
   downloadK2Package: (packageSource: string) => invoke<string>("download_k2_package", { packageSource }),

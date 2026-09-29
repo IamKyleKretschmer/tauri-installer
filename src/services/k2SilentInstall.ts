@@ -64,7 +64,7 @@ export interface SilentInstallConfig {
 /** Prefixes a bare account name with its NETBIOS domain (DOMAIN\user) so
  *  SQL Server's CREATE LOGIN ... FROM WINDOWS can resolve it - a name
  *  that already has a domain\ or user@domain form is left untouched. */
-function qualifyAccount(account: string, netbiosDomain?: string): string {
+export function qualifyAccount(account: string, netbiosDomain?: string): string {
   const trimmed = account.trim();
   if (!trimmed || trimmed.includes("\\") || trimmed.includes("@") || !netbiosDomain) {
     return trimmed;
