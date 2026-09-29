@@ -124,6 +124,28 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     machineKey.trim() ? deriveBytesFromString(machineKey.trim(), 32) : randomBytes(32),
   );
   const rijndaelIv = bytesToBase64(machineKey.trim() ? deriveBytesFromString(machineKey.trim(), 16) : randomBytes(16));
+  // Real evidence: comparing a completed install's own web.config files
+  // against each other (not against a different machine) found Identity's
+  // <machineKey> genuinely different from every other app's (Designer,
+  // Runtime/Workspace/Management's shared one, ViewFlow - all identical to
+  // each other, just not to Identity). Left undefined here, SetupManager's
+  // own "VariableCollection.Update: Creating new variable: [STS_DECRYPTION_
+  // KEY]"/[STS_VALIDATION_KEY]" auto-generation (confirmed in a real trace
+  // log) runs independently per component, producing a different key for
+  // Identity than for the smartforms Designer/Runtime group. Since a
+  // session cookie is encrypted/signed with whichever machineKey issued it,
+  // a mismatch here means one app's cookie can never validate against
+  // another's - HostSecurityManager.GetSessionPrimaryCredentials throwing
+  // "Primary Credentials Not Authenticated" is exactly that failure.
+  // Supplying real values here (same derive-from-machineKey-or-randomize
+  // pattern as RIJNDAEL_KEY/IV above) makes every app get the identical
+  // key instead of letting SetupManager mint one per component.
+  const stsDecryptionKey = bytesToHex(
+    machineKey.trim() ? deriveBytesFromString(`${machineKey.trim()}-decryption`, 24) : randomBytes(24),
+  );
+  const stsValidationKey = bytesToHex(
+    machineKey.trim() ? deriveBytesFromString(`${machineKey.trim()}-validation`, 64) : randomBytes(64),
+  );
 
   const dbConnectionString = connectionString(sqlConfig);
   const dbName = sqlConfig.databaseName || "K2";
@@ -419,6 +441,8 @@ export function buildK2SilentInstallXml(config: SilentInstallConfig): string {
     // hostname issue. A genuinely fresh install needs this seeding to run,
     // so override the default to "false" here.
     ["PRESERVE_CLAIMS_WS", "false"],
+    ["STS_DECRYPTION_KEY", stsDecryptionKey],
+    ["STS_VALIDATION_KEY", stsValidationKey],
     ...(executionType ? ([["EXECUTION_TYPE", executionType]] as [string, string][]) : []),
   ];
 
