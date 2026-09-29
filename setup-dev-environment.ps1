@@ -19,9 +19,13 @@
     of these installers write to machine-wide Program Files/PATH and will
     silently no-op or fail without admin rights.
 
-    PATH changes made by these installers only apply to *new* processes.
-    Close this PowerShell window and open a fresh one after this script
-    finishes before running any of the tools it installed.
+    Also builds DotNetRunner at the end (if this script is run from inside
+    the cloned repo and a .NET SDK is present), so a fresh checkout works
+    end to end without a separate manual build step.
+
+    This script refreshes its own $env:Path near the end so git/dotnet/cargo
+    are usable in this same window right after it finishes - no need to
+    close and reopen PowerShell.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -198,9 +202,41 @@ if ($bestAspNetCoreVersion -and $bestAspNetCoreVersion -ge $requiredVersion) {
     Write-Host "ASP.NET Core Hosting Bundle installed." -ForegroundColor Green
 }
 
+# --- Refresh this session's PATH -----------------------------------------
+# Everything above wrote to the machine/user PATH in the registry, but this
+# already-running PowerShell process never re-reads that - so without this,
+# git/dotnet/cargo all report "not recognized" in the *same* window that
+# just installed them, and the DotNetRunner build below would fail for the
+# same reason. Rebuild $env:Path from the registry now so the rest of this
+# script (and anything run from this window afterwards) sees the new tools
+# immediately, without needing a fresh window.
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+$dotnetExe = Get-DotnetExe
+
+# --- Build DotNetRunner ---------------------------------------------------
+# Not required to get the toolchain installed, but skipping it just moves
+# this exact "system cannot find the file specified" failure into the K2
+# Setup wizard's SQL Server step instead of catching it here. Build it now
+# so a fresh checkout works end to end without a separate manual step.
+$dotNetRunnerDir = Join-Path $PSScriptRoot "DotNetRunner"
+if ($dotnetExe -and (Test-Path $dotNetRunnerDir)) {
+    Write-Host "[build] DotNetRunner (Release)..." -ForegroundColor Cyan
+    Push-Location $dotNetRunnerDir
+    try {
+        & $dotnetExe build -c Release
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "DotNetRunner build failed (exit code $LASTEXITCODE) - see output above. You can retry manually with: cd DotNetRunner; dotnet build -c Release"
+        } else {
+            Write-Host "DotNetRunner built." -ForegroundColor Green
+        }
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host "[skip] DotNetRunner not built (script not run from inside the cloned repo, or no .NET SDK found) - build it manually later with: cd DotNetRunner; dotnet build -c Release" -ForegroundColor DarkGray
+}
+
 Write-Host ""
-Write-Host "Setup complete. Close this PowerShell window and open a fresh one, then run:" -ForegroundColor Yellow
-Write-Host "  cd C:\k2-installer"
+Write-Host "Setup complete. From this same window (or a fresh one) you can now run:" -ForegroundColor Yellow
 Write-Host "  npm install"
-Write-Host "  cd DotNetRunner; dotnet build -c Release; cd .."
 Write-Host "  npm run tauri dev"
