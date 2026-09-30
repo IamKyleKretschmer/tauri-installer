@@ -80,21 +80,32 @@ namespace DotNetRunner
                     {
                         connection.Open();
 
-                        // Always recreate fresh: a database left over from an
-                        // earlier failed/partial install attempt may be missing
-                        // filegroups or other objects a newer version of this
-                        // tool creates (e.g. FG_HostServer), and there is no
-                        // way to detect that short of comparing schemas. This
-                        // command runs immediately before the real installer,
-                        // so a stale leftover database is never something worth
-                        // preserving.
+                        // Recreate fresh ONLY when there's nothing real to lose:
+                        // a database left over from an earlier failed/partial
+                        // install attempt may be missing filegroups or other
+                        // objects a newer version of this tool creates (e.g.
+                        // FG_HostServer), so the bare shell this tool itself
+                        // creates is always safe to drop and redo. A database
+                        // that already has real K2 schema deployed onto it
+                        // (HasRealK2Schema) is a different story - it's not
+                        // something this step should ever touch, since the
+                        // only way to reach this code is clicking "Test
+                        // connection & Next" on the SQL Server step, which
+                        // happens just as often when revisiting an
+                        // already-working install (to review settings, demo
+                        // the wizard, ...) as it does before a genuine fresh
+                        // install.
                         bool alreadyExisted = DatabaseExists(connection, database);
-                        if (alreadyExisted)
+                        bool hasRealSchema = alreadyExisted && HasRealK2Schema(connection, database);
+                        if (alreadyExisted && !hasRealSchema)
                         {
                             DropDatabaseInternal(connection, database);
                         }
-                        CreateDatabase(connection, database);
-                        ApplyRecommendedDatabaseSettings(connection, database);
+                        if (!hasRealSchema)
+                        {
+                            CreateDatabase(connection, database);
+                            ApplyRecommendedDatabaseSettings(connection, database);
+                        }
 
                         // Schema-owner user + role assignment mirror the real
                         // CreateSqlUser/AssignSqlUserRole actions. Only doable
@@ -131,9 +142,11 @@ namespace DotNetRunner
                             }
                         }
 
-                        string dbNote = alreadyExisted
-                            ? $"Database '{database}' recreated fresh with collation {RequiredCollation}."
-                            : $"Database '{database}' created with collation {RequiredCollation}.";
+                        string dbNote = hasRealSchema
+                            ? $"Database '{database}' already has a real K2 schema deployed - left untouched."
+                            : alreadyExisted
+                                ? $"Database '{database}' recreated fresh with collation {RequiredCollation}."
+                                : $"Database '{database}' created with collation {RequiredCollation}.";
                         string versionNote = GetFriendlySqlVersionNote(connection);
                         Console.WriteLine($"Connected to {server}{versionNote}. {dbNote}{userNote}");
                         return 0;
@@ -404,6 +417,37 @@ WHERE NOT EXISTS (
             {
                 command.Parameters.AddWithValue("@name", database);
                 return command.ExecuteScalar() != null;
+            }
+        }
+
+        /// <summary>
+        /// Real failure, hit live: TestConnectionAndDatabase used to drop and
+        /// recreate the database unconditionally on every single "Test
+        /// connection & Next" click - fine the first time (before a real
+        /// install has run), destructive every time after, since simply
+        /// revisiting the SQL Server step (to review settings, demo the
+        /// wizard, etc.) silently wiped a fully working, already-deployed K2
+        /// database, breaking everything from that point on ("Could not find
+        /// stored procedure 'Identity.GetIdentity'" - not a connectivity
+        /// issue, the whole schema was just gone). Checks for
+        /// [HostServer].[HostServerSetting], a table only the real K2
+        /// database schema deployment creates (this app never creates it
+        /// itself) - its presence means real, valuable schema exists and
+        /// must not be touched; its absence means the database is at most
+        /// the bare shell this tool itself creates, safe to drop and redo.
+        /// </summary>
+        private static bool HasRealK2Schema(SqlConnection connection, string database)
+        {
+            var builder = new SqlConnectionStringBuilder(connection.ConnectionString) { InitialCatalog = database };
+            using (var dbConnection = new SqlConnection(builder.ConnectionString))
+            {
+                dbConnection.Open();
+                using (var command = new SqlCommand(
+                    "SELECT OBJECT_ID('HostServer.HostServerSetting')", dbConnection))
+                {
+                    object result = command.ExecuteScalar();
+                    return result != null && result != DBNull.Value;
+                }
             }
         }
 
